@@ -77,6 +77,7 @@ public final class SettingsRepository {
         try {
             Map<String, Object> root = Json.parseObject(text);
             settings.setTheme(Theme.fromName(Json.optString(root, "theme", "FOLLOW_SYSTEM")));
+            settings.setBackupDir(Json.optString(root, "backupDir", AppSettings.defaultBackupDir()));
             for (String dir : Json.optStringList(root, "manualWorldDirs")) {
                 settings.addManualWorldDir(dir);
             }
@@ -87,6 +88,7 @@ public final class SettingsRepository {
             settings.setAutoBackupEnabled(Json.optBoolean(root, "autoBackupEnabled", false));
             settings.setAutoBackupIntervalMinutes(clamp(Json.optInt(root, "autoBackupIntervalMinutes", 10), 1, 1440));
             settings.setRetainCount(clamp(Json.optInt(root, "retainCount", 20), 1, 1000));
+            settings.setFastBackup(Json.optBoolean(root, "fastBackup", true));
             Log.info("已加载配置: %s (主题=%s, 手动目录=%d)", file, settings.getTheme(),
                     settings.getManualWorldDirs().size());
             return settings;
@@ -131,6 +133,7 @@ public final class SettingsRepository {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("schemaVersion", AppSettings.SCHEMA_VERSION);
         root.put("theme", settings.getTheme().name());
+        root.put("backupDir", settings.getBackupDir());
         List<String> dirs = new ArrayList<>(settings.getManualWorldDirs());
         root.put("manualWorldDirs", dirs);
         root.put("windowWidth", settings.getWindowWidth());
@@ -144,6 +147,7 @@ public final class SettingsRepository {
         root.put("autoBackupEnabled", settings.isAutoBackupEnabled());
         root.put("autoBackupIntervalMinutes", settings.getAutoBackupIntervalMinutes());
         root.put("retainCount", settings.getRetainCount());
+        root.put("fastBackup", settings.isFastBackup());
         return root;
     }
 

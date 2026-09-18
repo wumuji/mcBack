@@ -29,7 +29,7 @@ import java.util.function.Consumer;
  */
 public class WorldListItem extends JPanel implements ThemeAware {
 
-    private static final int ROW_HEIGHT = 74;
+    private static final int ROW_HEIGHT = 64;
 
     private final MinecraftWorld world;
     private final Pill statusPill;

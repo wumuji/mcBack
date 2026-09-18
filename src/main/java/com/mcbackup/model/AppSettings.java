@@ -2,6 +2,7 @@ package com.mcbackup.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Path;
 
 /**
  * 应用配置(对应 %APPDATA%\MCBackup\config.json)。
@@ -15,6 +16,7 @@ public final class AppSettings {
 
     private Theme theme = Theme.FOLLOW_SYSTEM;
     private final List<String> manualWorldDirs = new ArrayList<>();
+    private String backupDir = defaultBackupDir();
     private int windowWidth = 1080;
     private int windowHeight = 720;
     private int windowX = Integer.MIN_VALUE;
@@ -22,6 +24,26 @@ public final class AppSettings {
     private boolean autoBackupEnabled = false;
     private int autoBackupIntervalMinutes = 10;
     private int retainCount = 20;
+    /** 快速备份:区域文件(.mca)不重复压缩。速度约快 8 倍,体积约大 1.5 倍。 */
+    private boolean fastBackup = true;
+
+    /** 默认备份位置:%USERPROFILE%\MCBackups。 */
+    public static String defaultBackupDir() {
+        return Path.of(System.getProperty("user.home", "."), "MCBackups").toString();
+    }
+
+    public String getBackupDir() {
+        return backupDir == null || backupDir.isBlank() ? defaultBackupDir() : backupDir;
+    }
+
+    public void setBackupDir(String backupDir) {
+        this.backupDir = backupDir == null || backupDir.isBlank() ? defaultBackupDir() : backupDir;
+    }
+
+    /** 备份目录的 Path 形式。 */
+    public Path backupDirPath() {
+        return Path.of(getBackupDir());
+    }
 
     public Theme getTheme() {
         return theme;
@@ -85,6 +107,14 @@ public final class AppSettings {
 
     public int getRetainCount() {
         return retainCount;
+    }
+
+    public boolean isFastBackup() {
+        return fastBackup;
+    }
+
+    public void setFastBackup(boolean fastBackup) {
+        this.fastBackup = fastBackup;
     }
 
     public void setRetainCount(int retainCount) {

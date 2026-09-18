@@ -15,15 +15,14 @@ import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 
-/** 顶栏:页面标题、扫描状态,以及「重新扫描」「切换主题」两个快捷操作。 */
+/** 顶栏:页面标题、当前状态文字,以及「重新扫描」。刻意只保留必要控件。 */
 public class TopBar extends JPanel implements ThemeAware {
 
     private final TLabel titleLabel = new TLabel("世界", TLabel.Role.H1);
     private final TLabel statusLabel = new TLabel("准备扫描…", TLabel.Role.MUTED);
-    private final FlatButton themeButton;
     private final FlatButton rescanButton;
 
-    public TopBar(Runnable onRescan, Runnable onToggleTheme) {
+    public TopBar(Runnable onRescan) {
         setOpaque(false);
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(20, 24, 14, 24));
@@ -42,14 +41,8 @@ public class TopBar extends JPanel implements ThemeAware {
         rescanButton = new FlatButton("重新扫描");
         rescanButton.setToolTipText("重新扫描所有存档目录");
         rescanButton.addActionListener(e -> onRescan.run());
-        themeButton = new FlatButton("浅色", FlatButton.Variant.GHOST);
-        themeButton.setToolTipText("在浅色与深色之间切换");
-        themeButton.addActionListener(e -> onToggleTheme.run());
         buttons.add(rescanButton);
-        buttons.add(themeButton);
         add(buttons, BorderLayout.EAST);
-
-        refreshThemeButtonText();
     }
 
     public void setTitle(String text) {
@@ -64,15 +57,8 @@ public class TopBar extends JPanel implements ThemeAware {
         rescanButton.setEnabled(enabled);
     }
 
-    /** 按钮文字表示「点击后会切换成什么主题」。 */
-    public final void refreshThemeButtonText() {
-        themeButton.setText(ThemeManager.palette().dark() ? "浅色" : "深色");
-        themeButton.repaint();
-    }
-
     @Override
     public void onThemeChanged() {
-        refreshThemeButtonText();
         repaint();
     }
 

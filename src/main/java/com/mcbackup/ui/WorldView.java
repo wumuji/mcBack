@@ -55,15 +55,19 @@ public class WorldView extends JPanel implements ThemeAware {
     private final Map<String, WorldListItem> itemsByKey = new LinkedHashMap<>();
     private final Runnable onAddDirectory;
     private final Runnable onRescan;
+    private final Consumer<MinecraftWorld> onBackup;
 
     private ScanResult result = ScanResult.empty();
     private MinecraftWorld selected;
     private Consumer<String> statusSink = text -> {
     };
+    private Consumer<MinecraftWorld> selectionSink = world -> {
+    };
 
-    public WorldView(Runnable onAddDirectory, Runnable onRescan) {
+    public WorldView(Runnable onAddDirectory, Runnable onRescan, Consumer<MinecraftWorld> onBackup) {
         this.onAddDirectory = onAddDirectory;
         this.onRescan = onRescan;
+        this.onBackup = onBackup;
         setOpaque(false);
         setLayout(new BorderLayout(16, 0));
 
@@ -159,6 +163,7 @@ public class WorldView extends JPanel implements ThemeAware {
         itemsByKey.forEach((key, item) -> item.setSelected(key.equals(world.key())));
         buildDetail(world);
         detailLayout.show(detailHost, CARD_DETAIL);
+        selectionSink.accept(world);
     }
 
     /** 扫描过程中的占位提示。 */
@@ -170,6 +175,12 @@ public class WorldView extends JPanel implements ThemeAware {
 
     public void setStatusSink(Consumer<String> sink) {
         this.statusSink = sink == null ? text -> {
+        } : sink;
+    }
+
+    /** 选中世界变化时通知外部(用于同步「备份」「导出」两个页面)。 */
+    public void setSelectionSink(Consumer<MinecraftWorld> sink) {
+        this.selectionSink = sink == null ? world -> {
         } : sink;
     }
 
@@ -201,8 +212,8 @@ public class WorldView extends JPanel implements ThemeAware {
         actions.setBorder(BorderFactory.createEmptyBorder(16, 0, 0, 0));
 
         FlatButton backup = new FlatButton("立即备份", FlatButton.Variant.PRIMARY);
-        backup.setEnabled(false);
-        backup.setToolTipText("备份功能将在第二阶段提供");
+        backup.setToolTipText("把这个世界完整备份为 ZIP");
+        backup.addActionListener(e -> onBackup.accept(world));
         FlatButton openDir = new FlatButton("打开世界目录");
         openDir.addActionListener(e -> {
             if (!FileUtils.openInFileBrowser(world.worldDir())) {

@@ -1,6 +1,7 @@
 package com.mcbackup;
 
 import com.mcbackup.model.AppSettings;
+import com.mcbackup.service.LauncherDetector;
 import com.mcbackup.storage.SettingsRepository;
 import com.mcbackup.ui.MainWindow;
 import com.mcbackup.ui.ScreenshotRunner;
@@ -22,17 +23,19 @@ import java.util.List;
 public final class App {
 
     public static final String NAME = "MC Backup";
-    public static final String VERSION = "1.0.0-phase1";
+    public static final String VERSION = "0.2.0-phase2";
 
     private App() {
     }
 
     /** 命令行参数。 */
-    public record CliOptions(Path screenshotDir, List<Path> roots, boolean consoleLog, boolean noAutoScan) {
+    public record CliOptions(Path screenshotDir, List<Path> roots, Path backupDir, boolean consoleLog,
+                             boolean noAutoScan) {
 
         public static CliOptions parse(String[] args) {
             Path screenshot = null;
             List<Path> roots = new ArrayList<>();
+            Path backupDir = null;
             boolean console = false;
             boolean noAutoScan = false;
             if (args != null) {
@@ -52,13 +55,18 @@ public final class App {
                                 }
                             }
                         }
+                        case "--backup-dir" -> {
+                            if (i + 1 < args.length) {
+                                backupDir = PathUtils.toPath(args[++i]);
+                            }
+                        }
                         case "--console-log" -> console = true;
                         case "--no-auto-scan" -> noAutoScan = true;
                         default -> Log.warn("未知命令行参数: " + arg);
                     }
                 }
             }
-            return new CliOptions(screenshot, roots, console, noAutoScan);
+            return new CliOptions(screenshot, roots, backupDir, console, noAutoScan);
         }
     }
 
@@ -82,11 +90,14 @@ public final class App {
         SwingUtilities.invokeLater(() -> {
             try {
                 MainWindow window = new MainWindow(repository, settings, options.roots(),
-                        !screenshotMode && !options.noAutoScan());
+                        !screenshotMode && !options.noAutoScan(), new LauncherDetector(), options.backupDir());
                 window.setVisible(true);
                 window.start();
                 if (screenshotMode) {
                     window.scanNowBlocking();
+                    // 真实做一次最小世界的备份,让「备份」页展示的是真实数据而不是假数据
+                    window.markPreview();
+                    window.backupSmallestWorldForPreview();
                     ScreenshotRunner.run(window, options.screenshotDir(), ScreenshotRunner.defaultShots());
                 }
             } catch (RuntimeException e) {

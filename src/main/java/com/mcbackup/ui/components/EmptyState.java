@@ -1,8 +1,6 @@
 package com.mcbackup.ui.components;
 
-import com.mcbackup.ui.theme.Palette;
 import com.mcbackup.ui.theme.ThemeAware;
-import com.mcbackup.ui.theme.ThemeManager;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -12,9 +10,6 @@ import javax.swing.SwingConstants;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 
 /**
  * 空状态提示:标题 + 说明 + 若干操作按钮。
@@ -76,15 +71,5 @@ public class EmptyState extends JPanel implements ThemeAware {
         repaint();
     }
 
-    @Override
-    protected void paintComponent(Graphics g) {
-        Palette p = ThemeManager.palette();
-        Graphics2D g2 = (Graphics2D) g.create();
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(p.alpha(p.border(), 170));
-        g2.setStroke(new java.awt.BasicStroke(1.4f, java.awt.BasicStroke.CAP_ROUND,
-                java.awt.BasicStroke.JOIN_ROUND, 1f, new float[]{6f, 6f}, 0f));
-        g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 14, 14);
-        g2.dispose();
-    }
+    // 空状态不再画虚线边框:少一层绘制,视觉也更干净
 }

@@ -34,6 +34,7 @@ class SettingsRepositoryTest {
         settings.setWindowHeight(800);
         settings.setWindowX(120);
         settings.setWindowY(64);
+        settings.setFastBackup(false);
 
         Path saved = repository.save(settings);
         assertNotNull(saved);
@@ -46,6 +47,7 @@ class SettingsRepositoryTest {
         assertEquals(800, loaded.getWindowHeight());
         assertEquals(120, loaded.getWindowX());
         assertEquals(64, loaded.getWindowY());
+        assertFalse(loaded.isFastBackup(), "压缩方式应被持久化");
     }
 
     @Test
@@ -58,6 +60,7 @@ class SettingsRepositoryTest {
         assertTrue(settings.getManualWorldDirs().isEmpty());
         assertEquals(1080, settings.getWindowWidth());
         assertEquals(720, settings.getWindowHeight());
+        assertTrue(settings.isFastBackup(), "默认应为快速备份");
     }
 
     @Test

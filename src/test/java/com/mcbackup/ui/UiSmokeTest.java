@@ -1,6 +1,7 @@
 package com.mcbackup.ui;
 
 import com.mcbackup.model.AppSettings;
+import com.mcbackup.model.BackupRecord;
 import com.mcbackup.model.Theme;
 import com.mcbackup.storage.SettingsRepository;
 import com.mcbackup.model.LocationKind;
@@ -54,6 +55,7 @@ class UiSmokeTest {
             SettingsRepository repository = new SettingsRepository(tempDir.resolve("config"));
             AppSettings settings = new AppSettings();
             settings.addManualWorldDir(saves.toString());
+            settings.setBackupDir(tempDir.resolve("backups").toString());
             WorldRootProvider provider = () -> List.of(
                     new WorldRoot(saves.getParent(), saves, LocationKind.MANUAL, "测试存档目录"));
             MainWindow window = new MainWindow(repository, settings, List.of(), false, provider);
@@ -85,6 +87,15 @@ class UiSmokeTest {
                 window.navigate("world");
                 assertEquals("world", window.currentPage());
             });
+
+            // 真实备份一次,验证「备份」页面能显示出这份备份
+            BackupRecord record = window.backupSmallestWorldForPreview();
+            assertNotNull(record, "应能完成一次真实备份");
+            BackupView backupView = (BackupView) findFirst(window.getContentPane(),
+                    component -> component instanceof BackupView);
+            assertNotNull(backupView);
+            assertEquals(1, backupView.records().size());
+            assertEquals(1, backupView.records().stream().filter(BackupRecord::managed).count());
 
             SwingUtilities.invokeAndWait(() -> {
                 ThemeManager.setOption(Theme.LIGHT);

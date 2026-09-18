@@ -3,7 +3,8 @@
 
 param(
     [string]$OutDir = 'build\shots',
-    [string[]]$ExtraRoot = @()
+    [string[]]$ExtraRoot = @(),
+    [string]$BackupDir = 'build\smoke-backups'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,8 +18,11 @@ $classesDir = Join-Path $root 'out\classes'
 
 if (-not [System.IO.Path]::IsPathRooted($OutDir)) { $OutDir = Join-Path $root $OutDir }
 
+$BackupDirPath = $BackupDir
+if (-not [System.IO.Path]::IsPathRooted($BackupDirPath)) { $BackupDirPath = Join-Path $root $BackupDirPath }
+
 $javaArgs = @('-Dfile.encoding=UTF-8', '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8',
-    '-cp', $classesDir, 'com.mcbackup.App', '--screenshot', $OutDir)
+    '-cp', $classesDir, 'com.mcbackup.App', '--screenshot', $OutDir, '--backup-dir', $BackupDirPath)
 foreach ($r in $ExtraRoot) { $javaArgs += @('--root', $r) }
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }

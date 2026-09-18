@@ -6,7 +6,6 @@ import com.mcbackup.ui.theme.ThemeManager;
 import com.mcbackup.ui.theme.UiFonts;
 
 import javax.swing.JComponent;
-import javax.swing.Timer;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -20,8 +19,7 @@ import java.awt.event.MouseEvent;
 /**
  * 左侧导航项。
  *
- * <p>选中高亮使用 120ms 的 ease-out 插值动画(Timer 驱动)。这是界面上仅有的两处动画之一,
- * 不做常驻动画,保证空闲时 CPU 接近 0。</p>
+ * <p>刻意不做动画:选中态直接切换,省掉一个持续触发的 Timer,空闲时 CPU 保持 0。</p>
  */
 public class NavItem extends JComponent implements ThemeAware {
 
@@ -30,20 +28,12 @@ public class NavItem extends JComponent implements ThemeAware {
         WORLD, BOX, EXPORT, GEAR
     }
 
-    private static final int DURATION_MS = 120;
-    private static final int FRAME_MS = 16;
-
     private final Glyph glyph;
     private final String label;
     private final Runnable action;
 
     private boolean selected;
     private boolean hovered;
-    private float highlight;
-    private float target;
-    private float animationFrom;
-    private long animationStart;
-    private Timer animation;
 
     public NavItem(Glyph glyph, String label, Runnable action) {
         this.glyph = glyph;
@@ -58,13 +48,13 @@ public class NavItem extends JComponent implements ThemeAware {
             @Override
             public void mouseEntered(MouseEvent e) {
                 hovered = true;
-                animateTo(selected ? 1f : 0.45f);
+                repaint();
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
                 hovered = false;
-                animateTo(selected ? 1f : 0f);
+                repaint();
             }
 
             @Override
@@ -83,29 +73,8 @@ public class NavItem extends JComponent implements ThemeAware {
     public void setSelected(boolean value) {
         if (selected != value) {
             selected = value;
-            animateTo(selected ? 1f : (hovered ? 0.45f : 0f));
-        }
-    }
-
-    private void animateTo(float newTarget) {
-        target = newTarget;
-        animationFrom = highlight;
-        animationStart = System.currentTimeMillis();
-        if (animation != null && animation.isRunning()) {
-            return;
-        }
-        animation = new Timer(FRAME_MS, e -> {
-            float elapsed = System.currentTimeMillis() - animationStart;
-            float progress = Math.min(1f, elapsed / DURATION_MS);
-            float eased = 1f - (1f - progress) * (1f - progress);
-            highlight = animationFrom + (target - animationFrom) * eased;
             repaint();
-            if (progress >= 1f) {
-                highlight = target;
-                ((Timer) e.getSource()).stop();
-            }
-        });
-        animation.start();
+        }
     }
 
     @Override
@@ -122,9 +91,8 @@ public class NavItem extends JComponent implements ThemeAware {
         int w = getWidth();
         int h = getHeight();
 
-        int fillAlpha = (int) (highlight * (selected ? 46 : 26));
-        if (fillAlpha > 0) {
-            g.setColor(p.alpha(p.accent(), fillAlpha));
+        if (selected || hovered) {
+            g.setColor(p.alpha(p.accent(), selected ? 42 : 22));
             g.fillRoundRect(0, 0, w, h, 10, 10);
         }
         if (selected) {
@@ -132,7 +100,7 @@ public class NavItem extends JComponent implements ThemeAware {
             g.fillRoundRect(0, h / 2 - 9, 3, 18, 3, 3);
         }
 
-        boolean active = highlight > 0.5f;
+        boolean active = selected;
         Color iconColor = active ? p.accent() : p.textMuted();
         int iconSize = 18;
         int iconX = 16;

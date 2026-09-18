@@ -2,22 +2,35 @@ package com.mcbackup.ui;
 
 import com.mcbackup.App;
 import com.mcbackup.model.AppSettings;
+import com.mcbackup.model.BackupOptions;
+import com.mcbackup.model.BackupRecord;
+import com.mcbackup.model.BackupResult;
+import com.mcbackup.model.ExportResult;
+import com.mcbackup.model.MinecraftWorld;
 import com.mcbackup.model.ScanProgress;
 import com.mcbackup.model.ScanResult;
 import com.mcbackup.model.Theme;
+import com.mcbackup.service.BackupException;
+import com.mcbackup.service.BackupScheduler;
+import com.mcbackup.service.BackupService;
+import com.mcbackup.service.ExportService;
 import com.mcbackup.service.LauncherDetector;
-import com.mcbackup.service.WorldScanner;
 import com.mcbackup.service.WorldRootProvider;
+import com.mcbackup.service.WorldScanner;
+import com.mcbackup.storage.BackupRepository;
 import com.mcbackup.storage.SettingsRepository;
 import com.mcbackup.ui.components.ScrollPaneStyler;
 import com.mcbackup.ui.theme.ThemeAware;
 import com.mcbackup.ui.theme.ThemeManager;
+import com.mcbackup.util.FileUtils;
 import com.mcbackup.util.Log;
 import com.mcbackup.util.PathUtils;
+import com.mcbackup.util.ProgressListener;
 
 import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
@@ -37,12 +50,18 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
- * 主窗口:左侧导航 + 顶栏 + 四个页面。
+ * 主窗口:左侧导航 + 顶栏 + 四个页面,并负责把后台任务与界面串起来。
  *
- * <p>线程约定:所有 Swing 操作都在 EDT 上;扫描统一交给单线程的 {@code mcbackup-scan},
- * 空闲时该线程处于等待状态,不消耗 CPU。</p>
+ * <p>线程约定:</p>
+ * <ul>
+ *   <li>所有 Swing 操作都在 EDT;</li>
+ *   <li>扫描在 {@code mcbackup-scan} 单线程池;</li>
+ *   <li>备份/导出/删除在 {@code mcbackup-worker} 单线程池(串行执行,避免磁盘抖动);</li>
+ *   <li>自动备份在 {@code mcbackup-autobackup} 单线程调度器,空闲时线程在等待,不轮询。</li>
+ * </ul>
  */
 public class MainWindow extends JFrame implements ThemeAware {
 
@@ -55,49 +74,69 @@ public class MainWindow extends JFrame implements ThemeAware {
         PAGE_TITLES.put("settings", "设置");
     }
 
+    /** 后台任务:返回一句给状态栏显示的完成信息。 */
+    private interface Task {
+        String run(ProgressListener listener) throws Exception;
+    }
+
     private final SettingsRepository repository;
     private final AppSettings settings;
     private final List<Path> extraRoots;
     private final boolean autoScan;
 
     private final WorldScanner scanner;
-    private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "mcbackup-scan");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService scanExecutor = newSingleThreadExecutor("mcbackup-scan");
+    private final ExecutorService workerExecutor = newSingleThreadExecutor("mcbackup-worker");
+
+    private BackupRepository backupRepository;
+    private BackupService backupService;
+    private final ExportService exportService = new ExportService();
+    private BackupScheduler scheduler;
 
     private final CardLayout pageLayout = new CardLayout();
     private final JPanel pageHost = new JPanel(pageLayout);
     private final Sidebar sidebar;
     private final TopBar topBar;
     private final WorldView worldView;
+    private final BackupView backupView;
+    private final ExportView exportView;
     private final SettingsView settingsView;
 
     private final AtomicBoolean scanRunning = new AtomicBoolean(false);
     private final AtomicBoolean rescanQueued = new AtomicBoolean(false);
+    private final AtomicBoolean busy = new AtomicBoolean(false);
     private final Runnable themeListener = this::applyTheme;
 
     private ScanResult lastResult = ScanResult.empty();
+    private ScanResult previewResult;
     private String currentPage = "world";
 
     public MainWindow(SettingsRepository repository, AppSettings settings, List<Path> extraRoots, boolean autoScan) {
-        this(repository, settings, extraRoots, autoScan, new LauncherDetector());
+        this(repository, settings, extraRoots, autoScan, new LauncherDetector(), null);
+    }
+
+    /** 便于测试注入存档目录来源。 */
+    public MainWindow(SettingsRepository repository, AppSettings settings, List<Path> extraRoots,
+                      boolean autoScan, WorldRootProvider provider) {
+        this(repository, settings, extraRoots, autoScan, provider, null);
     }
 
     /**
-     * 允许注入存档目录来源。
+     * 完整构造器。
      *
-     * <p>生产代码使用 {@link LauncherDetector};测试注入固定目录,避免测试结果受开发机上的
-     * 真实存档影响。</p>
+     * @param provider             存档目录来源(测试可注入)
+     * @param backupDirOverride    临时覆盖备份目录(命令行 --backup-dir,不写入配置)
      */
     public MainWindow(SettingsRepository repository, AppSettings settings, List<Path> extraRoots,
-                      boolean autoScan, WorldRootProvider provider) {
+                      boolean autoScan, WorldRootProvider provider, Path backupDirOverride) {
         this.repository = repository;
         this.settings = settings;
         this.extraRoots = extraRoots == null ? List.of() : new ArrayList<>(extraRoots);
         this.autoScan = autoScan;
         this.scanner = new WorldScanner(provider == null ? new LauncherDetector() : provider);
+        if (backupDirOverride != null) {
+            settings.setBackupDir(backupDirOverride.toString());
+        }
 
         setTitle(App.NAME + " — Minecraft Java 存档备份");
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
@@ -107,9 +146,42 @@ public class MainWindow extends JFrame implements ThemeAware {
         applySavedBounds();
 
         sidebar = new Sidebar(this::navigate);
-        topBar = new TopBar(() -> rescan(false), this::toggleTheme);
-        worldView = new WorldView(this::addDirectory, () -> rescan(false));
+        topBar = new TopBar(() -> rescan(false));
+        worldView = new WorldView(this::addDirectory, () -> rescan(false), this::backupWorld);
         worldView.setStatusSink(topBar::setStatus);
+        worldView.setSelectionSink(this::onWorldSelected);
+        backupView = new BackupView(new BackupView.Callbacks() {
+            @Override
+            public void onBackupNow() {
+                backupWorld(worldView.selectedWorld());
+            }
+
+            @Override
+            public void onOpenBackupDir() {
+                openBackupDir();
+            }
+
+            @Override
+            public void onExportRecord(BackupRecord record, Path targetZip) {
+                exportRecord(record, targetZip);
+            }
+
+            @Override
+            public void onDeleteRecord(BackupRecord record) {
+                deleteRecord(record);
+            }
+        });
+        exportView = new ExportView(new ExportView.Callbacks() {
+            @Override
+            public void onExportWorld(MinecraftWorld world, Path targetZip) {
+                exportWorld(world, targetZip);
+            }
+
+            @Override
+            public void onOpenDirectory(Path file) {
+                FileUtils.openInFileBrowser(file);
+            }
+        });
         settingsView = new SettingsView(settings, new SettingsView.Callbacks() {
             @Override
             public void onThemeSelected(Theme theme) {
@@ -130,40 +202,150 @@ public class MainWindow extends JFrame implements ThemeAware {
             public void onRescan() {
                 rescan(false);
             }
+
+            @Override
+            public void onBackupDirChanged(String path) {
+                saveSettings("备份位置已更新:" + path);
+                rebuildBackupServices();
+                refreshBackupViews();
+            }
+
+            @Override
+            public void onAutoBackupChanged(boolean enabled) {
+                saveSettings(enabled ? "自动备份已开启" : "自动备份已关闭");
+                applyAutoBackupSettings();
+            }
+
+            @Override
+            public void onBackupIntervalChanged(int minutes) {
+                saveSettings("自动备份间隔:" + minutes + " 分钟");
+                applyAutoBackupSettings();
+            }
+
+            @Override
+            public void onRetainCountChanged(int count) {
+                saveSettings(count <= 0 ? "保留策略:不限制" : "保留最近 " + count + " 份备份");
+            }
+
+            @Override
+            public void onCompressionChanged(boolean fast) {
+                saveSettings(fast
+                        ? "压缩方式:快速(区域文件直接存储,备份更快、体积略大)"
+                        : "压缩方式:体积优先(全部重新压缩,速度较慢)");
+            }
         }, repository.logsDir());
 
         pageHost.setOpaque(false);
         pageHost.setBorder(BorderFactory.createEmptyBorder(0, 24, 24, 24));
         pageHost.add(worldView, "world");
-        pageHost.add(new BackupView(), "backup");
-        pageHost.add(new ExportView(), "export");
+        pageHost.add(backupView, "backup");
+        pageHost.add(exportView, "export");
         pageHost.add(settingsView, "settings");
 
         JPanel center = new JPanel(new BorderLayout());
         center.setOpaque(false);
         center.add(topBar, BorderLayout.NORTH);
         center.add(pageHost, BorderLayout.CENTER);
-
         getContentPane().add(sidebar, BorderLayout.WEST);
         getContentPane().add(center, BorderLayout.CENTER);
 
+        rebuildBackupServices();
         navigate("world");
-        ScrollPaneStyler.applyRecursively(this);
+        applyAutoBackupSettings();
+        applyTheme();
         ThemeManager.addListener(themeListener);
-
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
                 closeApplication();
             }
         });
-        Log.info("主窗口已创建");
+        Log.info("主窗口已创建,备份目录: " + PathUtils.toDisplayPath(backupRepository.backupDir()));
     }
 
-    /** 启动后立即扫描(截屏模式下由调用方手动触发)。 */
+    private static ExecutorService newSingleThreadExecutor(String name) {
+        return Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    /** 启动后的动作:首次扫描、检查上次残留的临时文件。 */
     public void start() {
+        checkLeftoverTempFiles();
         if (autoScan) {
             rescan(false);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 服务装配
+    // ------------------------------------------------------------------
+
+    /** 备份目录变化时重建相关服务与调度器。 */
+    private void rebuildBackupServices() {
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
+        backupRepository = new BackupRepository(settings.backupDirPath());
+        backupService = new BackupService(backupRepository);
+        scheduler = new BackupScheduler(
+                () -> lastResult.worlds(),
+                backupService,
+                this::backupOptions,
+                backupRepository,
+                new AutoBackupListener());
+    }
+
+    private BackupOptions backupOptions() {
+        return BackupOptions.of(settings.backupDirPath(), settings.getRetainCount(), settings.isFastBackup());
+    }
+
+    private void applyAutoBackupSettings() {
+        boolean enabled = settings.isAutoBackupEnabled();
+        if (enabled) {
+            scheduler.start(settings.getAutoBackupIntervalMinutes());
+        } else {
+            scheduler.stop();
+        }
+        backupView.setAutoBackupStatus(enabled, settings.getAutoBackupIntervalMinutes());
+    }
+
+    /** 自动备份事件 → 状态栏文字(界面不刷日志)。 */
+    private final class AutoBackupListener implements BackupScheduler.Listener {
+
+        @Override
+        public void onSkipped(MinecraftWorld world, String reason) {
+            Log.debug("自动备份跳过 %s:%s", world.displayName(), reason);
+        }
+
+        @Override
+        public void onBackupStarted(MinecraftWorld world) {
+            SwingUtilities.invokeLater(() -> topBar.setStatus("自动备份:正在备份 " + world.displayName() + "…"));
+        }
+
+        @Override
+        public void onBackupFinished(MinecraftWorld world, BackupResult result) {
+            SwingUtilities.invokeLater(() -> topBar.setStatus("自动备份完成:" + world.displayName()
+                    + "(" + result.record().sizeText() + ")"));
+        }
+
+        @Override
+        public void onBackupFailed(MinecraftWorld world, Exception error) {
+            SwingUtilities.invokeLater(() -> topBar.setStatus("自动备份失败:"
+                    + world.displayName() + " — " + error.getMessage() + "(详见日志)"));
+        }
+
+        @Override
+        public void onTickFinished(int backedUp, int skipped, long elapsedMillis) {
+            SwingUtilities.invokeLater(() -> {
+                if (backedUp + skipped > 0) {
+                    topBar.setStatus("自动备份检查:备份 " + backedUp + " 个,跳过 " + skipped
+                            + " 个(没有变化),耗时 " + elapsedMillis + " ms");
+                }
+                refreshBackupViews();
+            });
         }
     }
 
@@ -177,6 +359,9 @@ public class MainWindow extends JFrame implements ThemeAware {
         pageLayout.show(pageHost, page);
         topBar.setTitle(PAGE_TITLES.get(page));
         sidebar.setSelected(page);
+        if ("backup".equals(page) || "export".equals(page)) {
+            refreshBackupViews();
+        }
     }
 
     public String currentPage() {
@@ -185,30 +370,43 @@ public class MainWindow extends JFrame implements ThemeAware {
 
     private void selectTheme(Theme theme) {
         ThemeManager.setOption(theme);
-        settings.setTheme(theme);
+        saveSettings("主题已切换为 " + theme.displayName());
+    }
+
+    private void saveSettings(String status) {
+        settings.setTheme(ThemeManager.option());
         repository.save(settings);
         settingsView.refreshThemeButtons();
-        Log.info("主题已切换为 " + theme.displayName());
+        settingsView.refreshBackupControls();
+        if (status != null) {
+            topBar.setStatus(status);
+        }
     }
 
-    private void toggleTheme() {
-        selectTheme(ThemeManager.palette().dark() ? Theme.LIGHT : Theme.DARK);
-    }
-
-    /** 主题变化:刷新所有自绘组件与滚动条。 */
     private void applyTheme() {
-        // 内容面板自己画背景,背景属性也同步一份,避免原生 LAF 在边缘绘制时取到旧颜色
         getContentPane().setBackground(ThemeManager.palette().background());
         ScrollPaneStyler.applyRecursively(this);
         walkThemeAware(getContentPane());
-        topBar.refreshThemeButtonText();
         revalidate();
         repaint();
     }
 
     private void walkThemeAware(java.awt.Container container) {
+        com.mcbackup.ui.theme.Palette palette = ThemeManager.palette();
         if (container instanceof ThemeAware aware) {
             aware.onThemeChanged();
+        }
+        // Swing 原生控件不会自动跟随 UIManager,需要显式设置颜色
+        if (container instanceof javax.swing.JComboBox<?> combo) {
+            combo.setBackground(palette.surface());
+            combo.setForeground(palette.text());
+        } else if (container instanceof javax.swing.JTextField field) {
+            field.setBackground(palette.dark() ? palette.background() : java.awt.Color.WHITE);
+            field.setForeground(palette.text());
+            field.setCaretColor(palette.text());
+        } else if (container instanceof javax.swing.JTextArea area) {
+            area.setBackground(palette.surface());
+            area.setForeground(palette.text());
         }
         for (java.awt.Component child : container.getComponents()) {
             if (child instanceof java.awt.Container childContainer) {
@@ -217,11 +415,15 @@ public class MainWindow extends JFrame implements ThemeAware {
         }
     }
 
+    private void onWorldSelected(MinecraftWorld world) {
+        backupView.setSelectedWorld(world);
+        exportView.selectWorld(world);
+    }
+
     // ------------------------------------------------------------------
     // 扫描
     // ------------------------------------------------------------------
 
-    /** 触发一次扫描;正在扫描时会排队一次,避免重复并发扫描。 */
     public void rescan(boolean forceSizeRecalc) {
         if (scanRunning.get()) {
             rescanQueued.set(true);
@@ -234,7 +436,7 @@ public class MainWindow extends JFrame implements ThemeAware {
         List<Path> manual = manualRoots();
         scanExecutor.submit(() -> {
             try {
-                ScanResult result = scanner.scan(manual, this::reportProgress, forceSizeRecalc);
+                ScanResult result = scanner.scan(manual, this::reportScanProgress, forceSizeRecalc);
                 SwingUtilities.invokeLater(() -> applyScanResult(result));
             } catch (RuntimeException e) {
                 Log.errorQuietly("扫描失败", e);
@@ -251,7 +453,7 @@ public class MainWindow extends JFrame implements ThemeAware {
         });
     }
 
-    private void reportProgress(ScanProgress progress) {
+    private void reportScanProgress(ScanProgress progress) {
         String text = "正在扫描(" + progress.scannedRoots() + "/" + progress.totalRoots() + ") · " + progress.label();
         SwingUtilities.invokeLater(() -> {
             topBar.setStatus(text);
@@ -263,6 +465,7 @@ public class MainWindow extends JFrame implements ThemeAware {
         lastResult = result;
         worldView.setScanResult(result);
         settingsView.setScanResult(result);
+        exportView.setScanResult(result);
         StringBuilder status = new StringBuilder("已扫描 ")
                 .append(result.rootCount()).append(" 个候选目录 · 发现 ")
                 .append(result.worlds().size()).append(" 个世界 · ")
@@ -274,7 +477,7 @@ public class MainWindow extends JFrame implements ThemeAware {
         topBar.setRescanEnabled(true);
     }
 
-    /** 同步扫描一次(仅截图自检使用,会阻塞调用线程)。 */
+    /** 同步扫描一次(截图自检用)。 */
     public ScanResult scanNowBlocking() {
         try {
             ScanResult result = scanner.scan(manualRoots(), null, false);
@@ -303,12 +506,144 @@ public class MainWindow extends JFrame implements ThemeAware {
     }
 
     // ------------------------------------------------------------------
+    // 备份 / 导出 / 删除
+    // ------------------------------------------------------------------
+
+    private void backupWorld(MinecraftWorld world) {
+        if (world == null) {
+            topBar.setStatus("请先在「世界」页面选择一个世界");
+            return;
+        }
+        submitTask("正在备份 " + world.displayName() + "…", listener -> {
+            BackupResult result = backupService.backup(world, backupOptions(), listener);
+            String suffix = result.complete() ? "" : " · 有文件未复制,详见日志";
+            return "备份完成:" + result.record().zipFileName()
+                    + "(" + result.record().sizeText() + ",耗时 " + result.record().durationText() + ")" + suffix;
+        });
+    }
+
+    private void exportWorld(MinecraftWorld world, Path target) {
+        submitTask("正在导出 " + world.displayName() + "…", listener -> {
+            ExportResult result = exportService.export(world, target, listener);
+            SwingUtilities.invokeLater(() -> exportView.setLastExport(result.zipPath()));
+            return "导出完成:" + PathUtils.toDisplayPath(result.zipPath())
+                    + "(" + FileUtils.humanSize(result.zipBytes()) + ")";
+        });
+    }
+
+    private void exportRecord(BackupRecord record, Path target) {
+        submitTask("正在导出备份到 " + PathUtils.toDisplayPath(target) + "…", listener ->
+                "已导出备份:" + PathUtils.toDisplayPath(
+                        exportService.copyZip(record.zipPath(), target, listener)));
+    }
+
+    private void deleteRecord(BackupRecord record) {
+        submitTask("正在删除备份 " + record.zipFileName() + "…", listener -> {
+            BackupRepository.DeleteOutcome outcome = backupRepository.delete(record);
+            if (outcome.status() == BackupRepository.DeleteStatus.FAILED) {
+                throw new BackupException(outcome.message());
+            }
+            return outcome.message();
+        });
+    }
+
+    private void openBackupDir() {
+        try {
+            backupRepository.ensureExists();
+        } catch (Exception e) {
+            Log.warn("创建备份目录失败: %s", e.getMessage());
+        }
+        if (!FileUtils.openInFileBrowser(backupRepository.backupDir())) {
+            topBar.setStatus("无法打开备份目录:" + PathUtils.toDisplayPath(backupRepository.backupDir()));
+        }
+    }
+
+    /**
+     * 提交一个后台任务。
+     *
+     * <p>串行执行:同一时刻只允许一个备份/导出/删除任务,避免多个大文件操作互相拖慢磁盘。</p>
+     */
+    private void submitTask(String runningStatus, Task task) {
+        if (!busy.compareAndSet(false, true)) {
+            topBar.setStatus("已有任务正在执行,请稍候…");
+            return;
+        }
+        setBusyUi(true);
+        topBar.setStatus(runningStatus);
+        workerExecutor.submit(() -> {
+            try {
+                String message = task.run(new ThrottledProgress());
+                SwingUtilities.invokeLater(() -> topBar.setStatus(message));
+            } catch (BackupException e) {
+                String text = e.getMessage();
+                SwingUtilities.invokeLater(() -> {
+                    topBar.setStatus(text);
+                    JOptionPane.showMessageDialog(this, text, "MC Backup", JOptionPane.ERROR_MESSAGE);
+                });
+            } catch (Exception e) {
+                Log.errorQuietly("后台任务失败", e);
+                SwingUtilities.invokeLater(() -> {
+                    topBar.setStatus("操作失败:" + e.getMessage());
+                    JOptionPane.showMessageDialog(this, "操作失败:" + e.getMessage(),
+                            "MC Backup", JOptionPane.ERROR_MESSAGE);
+                });
+            } finally {
+                busy.set(false);
+                SwingUtilities.invokeLater(() -> {
+                    setBusyUi(false);
+                    refreshBackupViews();
+                });
+            }
+        });
+    }
+
+    private void setBusyUi(boolean value) {
+        topBar.setRescanEnabled(!value);
+        backupView.setBusy(value);
+        exportView.setBusy(value);
+    }
+
+    /** 重新读取备份列表(IO 放在后台线程,结果回 EDT)。 */
+    private void refreshBackupViews() {
+        BackupRepository current = backupRepository;
+        workerExecutor.submit(() -> {
+            List<BackupRecord> records = current.listAll();
+            SwingUtilities.invokeLater(() -> backupView.setBackups(records));
+        });
+    }
+
+    /** 进度回调:限流到 ~7 次/秒,避免把 EDT 刷爆。 */
+    private final class ThrottledProgress implements ProgressListener {
+
+        private long lastPush;
+        private String lastStage = "";
+
+        @Override
+        public void onProgress(String stage, int done, int total, String detail) {
+            long now = System.currentTimeMillis();
+            boolean stageChanged = !stage.equals(lastStage);
+            if (!stageChanged && now - lastPush < 150) {
+                return;
+            }
+            lastPush = now;
+            lastStage = stage;
+            String name = detail == null ? "" : detail;
+            int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+            if (slash >= 0) {
+                name = name.substring(slash + 1);
+            }
+            String text = stage + (total > 0 ? " " + done + "/" + total : "") + (name.isBlank() ? "" : " · " + name);
+            SwingUtilities.invokeLater(() -> topBar.setStatus(text));
+        }
+    }
+
+    // ------------------------------------------------------------------
     // 目录管理
     // ------------------------------------------------------------------
 
     private void addDirectory() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("选择 Minecraft 存档目录");
+        chooser.setDialogTitle("选择 Minecraft 存档目录(可以是 saves、游戏目录或世界目录)");
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setAcceptAllFileFilterUsed(false);
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
@@ -320,22 +655,56 @@ public class MainWindow extends JFrame implements ThemeAware {
         }
         String path = selected.getAbsolutePath();
         settings.addManualWorldDir(path);
-        repository.save(settings);
         Log.info("已添加存档目录: " + path);
-        topBar.setStatus("已添加目录:" + path);
+        saveSettings("已添加目录:" + path);
         rescan(false);
     }
 
     private void removeDirectory(String path) {
         settings.removeManualWorldDir(path);
-        repository.save(settings);
         Log.info("已移除存档目录: " + path);
-        topBar.setStatus("已移除目录:" + path);
+        saveSettings("已移除目录:" + path);
         rescan(false);
     }
 
     // ------------------------------------------------------------------
-    // 窗口生命周期与截屏辅助
+    // 崩溃残留检查
+    // ------------------------------------------------------------------
+
+    private void checkLeftoverTempFiles() {
+        BackupRepository current = backupRepository;
+        workerExecutor.submit(() -> {
+            List<Path> leftovers = current.findLeftoverTempFiles();
+            if (!leftovers.isEmpty()) {
+                SwingUtilities.invokeLater(() -> showRecoveryDialog(leftovers));
+            }
+        });
+    }
+
+    private void showRecoveryDialog(List<Path> leftovers) {
+        StringBuilder text = new StringBuilder("检测到上一次操作没有正常完成,留下了 ")
+                .append(leftovers.size()).append(" 个临时文件/目录:\n");
+        leftovers.stream().limit(5).forEach(path ->
+                text.append("  · ").append(PathUtils.toDisplayPath(path)).append('\n'));
+        if (leftovers.size() > 5) {
+            text.append("  …\n");
+        }
+        text.append("\n这些文件不会被自动删除,你可以先看看再决定。");
+        int choice = JOptionPane.showOptionDialog(this, text.toString(), "MC Backup",
+                JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE, null,
+                new Object[]{"删除临时文件", "打开备份目录", "稍后处理"}, "稍后处理");
+        if (choice == 0) {
+            int removed = backupRepository.cleanTempFiles(leftovers);
+            topBar.setStatus("已清理 " + removed + " 个临时文件/目录");
+        } else if (choice == 1) {
+            openBackupDir();
+        } else {
+            topBar.setStatus("已保留临时文件,可稍后在备份目录里查看");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 窗口生命周期与截图辅助
     // ------------------------------------------------------------------
 
     private void applySavedBounds() {
@@ -363,6 +732,14 @@ public class MainWindow extends JFrame implements ThemeAware {
     }
 
     private void closeApplication() {
+        if (busy.get()) {
+            int answer = JOptionPane.showConfirmDialog(this,
+                    "还有任务正在执行(备份/导出)。确定要退出吗?\n未完成的临时文件会保留在备份目录里。",
+                    "MC Backup", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (answer != JOptionPane.YES_OPTION) {
+                return;
+            }
+        }
         try {
             settings.setWindowWidth(getWidth());
             settings.setWindowHeight(getHeight());
@@ -383,7 +760,11 @@ public class MainWindow extends JFrame implements ThemeAware {
     /** 释放后台资源(测试与正常退出都会调用)。 */
     void shutdown() {
         ThemeManager.removeListener(themeListener);
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
         scanExecutor.shutdownNow();
+        workerExecutor.shutdownNow();
     }
 
     /** 截图自检:切换到指定主题/页面,并按需要展示空状态。 */
@@ -399,13 +780,47 @@ public class MainWindow extends JFrame implements ThemeAware {
 
     /** 截图自检:恢复真实数据。 */
     public void restoreAfterScreenshots() {
-        worldView.setScanResult(lastResult);
+        if (previewResult != null) {
+            worldView.setScanResult(previewResult);
+        } else {
+            worldView.setScanResult(lastResult);
+        }
         navigate("world");
+    }
+
+    /** 截图自检:标记当前世界列表来自预览(恢复时用)。 */
+    public void markPreview() {
+        previewResult = lastResult;
+    }
+
+    /** 截图/冒烟:对最小的世界做一次真实备份,让备份页有真实数据。 */
+    public BackupRecord backupSmallestWorldForPreview() {
+        MinecraftWorld smallest = lastResult.worlds().stream()
+                .min(java.util.Comparator.comparingLong(MinecraftWorld::sizeBytes))
+                .orElse(null);
+        if (smallest == null) {
+            Log.warn("没有可备份的世界,跳过预览备份");
+            return null;
+        }
+        try {
+            BackupResult result = backupService.backup(smallest, backupOptions(), ProgressListener.NOOP);
+            backupView.setBackups(backupRepository.listAll());
+            Log.info("预览备份完成: %s", result.record().zipFileName());
+            return result.record();
+        } catch (RuntimeException e) {
+            Log.error("预览备份失败", e);
+            return null;
+        }
     }
 
     /** 测试与排查用:当前扫描结果。 */
     public ScanResult lastScanResult() {
         return lastResult;
+    }
+
+    /** 测试用:后台任务是否在执行。 */
+    boolean isBusy() {
+        return busy.get();
     }
 
     @Override
