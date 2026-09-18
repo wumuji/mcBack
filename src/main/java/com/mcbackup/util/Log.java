@@ -126,15 +126,21 @@ public final class Log {
                     }
                     writer.flush();
                 } else {
-                    fallback.println(line);
+                    if (!consoleEcho) {
+                        fallback.println(line);
+                    }
                 }
             } catch (IOException e) {
                 if (!fileLoggingDisabled) {
                     fileLoggingDisabled = true;
-                    fallback.println("[log] 无法写入日志文件,本次运行改为只输出到控制台: " + e.getMessage());
+                    if (!consoleEcho) {
+                        fallback.println("[log] 无法写入日志文件,本次运行改为只输出到控制台: " + e.getMessage());
+                    }
                     closeQuietly();
                 }
-                fallback.println(line);
+                if (!consoleEcho) {
+                    fallback.println(line);
+                }
             }
             if (consoleEcho) {
                 System.out.println(line);

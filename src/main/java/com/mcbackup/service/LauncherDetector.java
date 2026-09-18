@@ -140,6 +140,9 @@ public final class LauncherDetector implements WorldRootProvider {
         }
 
         Log.info("自动检测到 %d 个存档目录", roots.size());
+        for (WorldRoot root : roots.values()) {
+            Log.info("  检测到存档目录: %s(%s)", root.displayPath(), root.label());
+        }
         return new ArrayList<>(roots.values());
     }
 

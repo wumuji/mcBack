@@ -66,7 +66,8 @@ public final class App {
         CliOptions options = CliOptions.parse(args);
         SettingsRepository repository = SettingsRepository.defaultRepository();
         Log.init(repository.logsDir());
-        Log.setConsoleEcho(options.consoleLog());
+        // 截图自检属于开发期工具,始终把日志回显到控制台
+        Log.setConsoleEcho(options.consoleLog() || options.screenshotDir() != null);
         Log.info("启动 %s v%s (Java %s, %s %s)", NAME, VERSION,
                 System.getProperty("java.version"),
                 System.getProperty("os.name"),

@@ -104,12 +104,29 @@ public final class WorldScanner {
                 if (manual == null) {
                     continue;
                 }
-                Path gameDir = manual.getParent() == null ? manual : manual.getParent();
-                WorldRoot root = new WorldRoot(gameDir, manual, LocationKind.MANUAL, "手动添加");
+                WorldRoot root = manualRoot(manual);
                 roots.putIfAbsent(root.dedupeKey(), root);
             }
         }
         return new ArrayList<>(roots.values());
+    }
+
+    /**
+     * 规范化手动添加的目录。
+     *
+     * <p>用户可能选择三种东西:世界目录、saves 目录、游戏目录(里面有 saves)。
+     * 这里都接受,避免出现「添加了却什么都没扫描到」的困惑。</p>
+     */
+    private static WorldRoot manualRoot(Path manual) {
+        Path parent = manual.getParent() == null ? manual : manual.getParent();
+        if (WorldDetector.isWorld(manual)) {
+            return new WorldRoot(parent, manual, LocationKind.MANUAL, "手动添加");
+        }
+        Path saves = manual.resolve("saves");
+        if (PathUtils.isDirectory(saves)) {
+            return new WorldRoot(manual, saves, LocationKind.MANUAL, "手动添加");
+        }
+        return new WorldRoot(parent, manual, LocationKind.MANUAL, "手动添加");
     }
 
     /** 扫描单个存档根目录下的所有世界。 */

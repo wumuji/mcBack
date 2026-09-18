@@ -105,6 +105,22 @@ class WorldScannerTest {
     }
 
     @Test
+    void acceptsGameDirectoryAddedManually() throws IOException {
+        // 用户直接添加 .minecraft 而不是里面的 saves 时也要能工作
+        Path gameDir = tempDir.resolve("manual-game").resolve(".minecraft");
+        Path saves = gameDir.resolve("saves");
+        Files.createDirectories(saves);
+        WorldFixtures.vanillaWorld(saves, "游戏目录世界", "游戏目录世界");
+        Files.createDirectories(gameDir.resolve("versions"));
+
+        WorldScanner scanner = new WorldScanner(List::of);
+        ScanResult result = scanner.scan(List.of(gameDir), null);
+
+        assertEquals(1, result.worlds().size());
+        assertEquals("游戏目录世界", result.worlds().get(0).folderName());
+    }
+
+    @Test
     void reportsIssueWhenManualDirectoryIsMissing() {
         WorldScanner scanner = new WorldScanner(List::of);
         ScanResult result = scanner.scan(List.of(tempDir.resolve("not-exists")), null);
