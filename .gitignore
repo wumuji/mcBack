@@ -1,0 +1,15 @@
+# 构建产物
+out/
+build/
+
+# 本地工具(测试期依赖,不进入版本库)
+.tools/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 编译中间物
+*.class
+hs_err_pid*.log
