@@ -186,6 +186,47 @@ class UiSmokeTest {
         }
     }
 
+    @Test
+    void legacyConfigWithAutoBackupOnButNoSelectionStaysPaused() throws Exception {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless(), "需要图形环境才能构建 Swing 界面");
+
+        Path saves = tempDir.resolve("saves3");
+        Files.createDirectories(saves);
+        WorldFixtures.vanillaWorld(saves, "老配置世界", "老配置世界");
+
+        AtomicReference<MainWindow> windowRef = new AtomicReference<>();
+        AtomicReference<AppSettings> settingsRef = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            SettingsRepository repository = new SettingsRepository(tempDir.resolve("config3"));
+            AppSettings settings = new AppSettings();
+            settings.setBackupDir(tempDir.resolve("backups3").toString());
+            // 模拟旧版本留下的状态:开了自动备份,但没有"勾选了哪些存档"的概念
+            settings.setAutoBackupEnabled(true);
+            settingsRef.set(settings);
+            WorldRootProvider provider = () -> List.of(
+                    new WorldRoot(saves.getParent(), saves, LocationKind.MANUAL, "测试", "测试"));
+            MainWindow window = new MainWindow(repository, settings, List.of(), false, provider);
+            window.setSize(1200, 720);
+            window.addNotify();
+            window.validate();
+            window.scanNowBlocking();
+            windowRef.set(window);
+        });
+
+        MainWindow window = windowRef.get();
+        try {
+            assertFalse(settingsRef.get().isAutoBackupEnabled(),
+                    "没有勾选任何存档时必须暂停自动备份,而不是把所有存档都备份一遍");
+            assertFalse(window.isAutoBackupRunning());
+            assertEquals(0, window.selectedWorldCount());
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                window.shutdown();
+                window.dispose();
+            });
+        }
+    }
+
     private static void assertOpaqueBackgroundsAreLight(Container root) {
         List<JComponent> opaque = new ArrayList<>();
         collectOpaque(root, opaque);
