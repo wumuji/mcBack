@@ -30,13 +30,15 @@ public final class App {
 
     /** 命令行参数。 */
     public record CliOptions(Path screenshotDir, List<Path> roots, Path backupDir, Path exportIconsDir,
-                             boolean consoleLog, boolean noAutoScan) {
+                             Path selfTestDir, int selfTestCycles, boolean consoleLog, boolean noAutoScan) {
 
         public static CliOptions parse(String[] args) {
             Path screenshot = null;
             List<Path> roots = new ArrayList<>();
             Path backupDir = null;
             Path exportIcons = null;
+            Path selfTest = null;
+            int selfTestCycles = 1;
             boolean console = false;
             boolean noAutoScan = false;
             if (args != null) {
@@ -66,13 +68,28 @@ public final class App {
                                 exportIcons = PathUtils.toPath(args[++i]);
                             }
                         }
+                        case "--self-test" -> {
+                            if (i + 1 < args.length) {
+                                selfTest = PathUtils.toPath(args[++i]);
+                            }
+                        }
+                        case "--self-test-cycles" -> {
+                            if (i + 1 < args.length) {
+                                try {
+                                    selfTestCycles = Math.max(1, Integer.parseInt(args[++i]));
+                                } catch (NumberFormatException e) {
+                                    Log.warn("--self-test-cycles 需要整数,已按 1 处理");
+                                }
+                            }
+                        }
                         case "--console-log" -> console = true;
                         case "--no-auto-scan" -> noAutoScan = true;
                         default -> Log.warn("未知命令行参数: " + arg);
                     }
                 }
             }
-            return new CliOptions(screenshot, roots, backupDir, exportIcons, console, noAutoScan);
+            return new CliOptions(screenshot, roots, backupDir, exportIcons, selfTest, selfTestCycles,
+                    console, noAutoScan);
         }
     }
 
@@ -91,24 +108,12 @@ public final class App {
         // 必须在任何 AWT 类之前:部分机器启用了辅助功能,而裁剪后的运行时可能没有对应模块
         com.mcbackup.util.AccessibilityGuard.applyIfNeeded();
 
-        // 单实例:自动备份是常驻的,两个实例同时跑会互相抢同一个世界和备份目录
-        if (!com.mcbackup.util.SingleInstanceGuard.acquire(repository.baseDir().resolve(".instance.lock"))) {
-            Log.warn("检测到已有 MC Backup 在运行,本次启动退出");
-            javax.swing.SwingUtilities.invokeLater(() -> {
-                javax.swing.JOptionPane.showMessageDialog(null,
-                        "MC Backup 已经在运行。\n\n"
-                                + "同一个存档只能被一个实例备份,请在任务栏或系统托盘里找到已经打开的窗口。\n"
-                                + "(如果确实找不到窗口,可以在任务管理器里结束 MCBackup.exe 后重试)",
-                        NAME, javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                System.exit(0);
-            });
-            return;
-        }
-
         AppSettings settings = repository.load();
         ThemeManager.setOption(settings.getTheme());
         ThemeManager.applyDefaults();
 
+        // 无界面的命令行模式(导出图标 / 自检)要放在单实例检查之前:
+        // 它们不碰存档、不需要窗口,也不该被"已有实例在运行"挡住。
         // 打包脚本用它导出 exe 图标(与窗口/托盘图标同源),导出后直接退出
         if (options.exportIconsDir() != null) {
             try {
@@ -122,6 +127,33 @@ public final class App {
                 Log.error("导出图标失败", e);
                 System.exit(3);
             }
+            return;
+        }
+
+        // 自检模式(发布冒烟用):不打开界面,跑一遍 备份 → 校验 → 恢复 → 比对
+        if (options.selfTestDir() != null) {
+            Path backupDir = options.backupDir() != null
+                    ? options.backupDir()
+                    : repository.baseDir().resolve("self-test-backups");
+            Log.setConsoleEcho(true);
+            com.mcbackup.service.SelfTest.Result result = com.mcbackup.service.SelfTest.run(
+                    options.selfTestDir(), backupDir, options.selfTestCycles());
+            System.out.println(result.text());
+            Log.info("自检结果: %s", result.passed() ? "PASS" : "FAIL");
+            System.exit(result.passed() ? 0 : 1);
+        }
+
+        // 单实例:自动备份是常驻的,两个实例同时跑会互相抢同一个世界和备份目录
+        if (!com.mcbackup.util.SingleInstanceGuard.acquire(repository.baseDir().resolve(".instance.lock"))) {
+            Log.warn("检测到已有 MC Backup 在运行,本次启动退出");
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                javax.swing.JOptionPane.showMessageDialog(null,
+                        "MC Backup 已经在运行。\n\n"
+                                + "同一个存档只能被一个实例备份,请在任务栏或系统托盘里找到已经打开的窗口。\n"
+                                + "(如果确实找不到窗口,可以在任务管理器里结束 MCBackup.exe 后重试)",
+                        NAME, javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                System.exit(0);
+            });
             return;
         }
 

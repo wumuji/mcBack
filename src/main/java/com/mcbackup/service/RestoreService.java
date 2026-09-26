@@ -240,7 +240,12 @@ public final class RestoreService {
             return;
         }
         try {
-            long usable = Files.getFileStore(directory).getUsableSpace();
+            // 目标目录可能还不存在(恢复到新位置),要往上找到最近的已存在目录再查剩余空间
+            Path probe = directory;
+            while (probe != null && !Files.exists(probe)) {
+                probe = probe.getParent();
+            }
+            long usable = Files.getFileStore(probe == null ? directory : probe).getUsableSpace();
             long needed = (long) (requiredBytes * 1.1);
             if (usable < needed) {
                 throw new BackupException("磁盘空间不足:需要约 " + FileUtils.humanSize(needed)
