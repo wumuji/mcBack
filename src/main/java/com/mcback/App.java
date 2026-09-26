@@ -23,7 +23,7 @@ import java.util.List;
 public final class App {
 
     public static final String NAME = "mcBack";
-    public static final String VERSION = "0.3.0";
+    public static final String VERSION = "1.0.0";
     /** 项目主页(关于页与文档里展示)。 */
     public static final String PROJECT_URL = "https://github.com/wumuji/mcBack";
 

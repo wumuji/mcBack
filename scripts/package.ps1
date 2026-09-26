@@ -3,7 +3,8 @@
 # Usage: powershell -File scripts\package.ps1 [-SkipRuntimeCheck]
 
 param(
-    [switch]$SkipRuntimeCheck
+    [switch]$SkipRuntimeCheck,
+    [switch]$NoInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,8 +19,9 @@ $inputDir = Join-Path $buildDir 'package-input'
 $distDir = Join-Path $buildDir 'dist'
 $releaseDir = Join-Path $root 'release'
 $releaseApp = Join-Path $releaseDir 'mcBack'
+$wixDir = Join-Path $root '.tools\wix'
 $classesDir = Join-Path $root 'out\classes'
-$appVersion = '0.3.0'
+$appVersion = '1.0.0'
 
 & (Join-Path $PSScriptRoot 'build.ps1')
 
@@ -151,4 +153,42 @@ Compress-Archive -Path (Join-Path $releaseApp '*') -DestinationPath $zipPath -Co
 
 Write-Host ('[package] release: {0} ({1} MB)' -f $releaseApp, (Get-DirectorySizeMb $releaseApp))
 Write-Host ('[package] zip:     {0} ({1} MB)' -f $zipPath, [math]::Round((Get-Item $zipPath).Length / 1MB, 1))
+
+# 4) 安装包(可选):用便携版 WiX 生成 mcBack-<版本>-Setup.exe,不需要安装 WiX 到系统
+$setupPath = Join-Path $releaseDir ("mcBack-{0}-Setup.exe" -f $appVersion)
+if (-not $NoInstaller) {
+    if (Test-Path -LiteralPath (Join-Path $wixDir 'candle.exe')) {
+        Write-Host '[package] jpackage: building Windows installer (WiX found in .tools\wix)'
+        $env:PATH = "$wixDir;$env:PATH"
+        if (Test-Path -LiteralPath $setupPath) { Remove-Item -LiteralPath $setupPath -Force }
+        & $jdk.Jpackage `
+            '--type' 'exe' `
+            '--name' 'mcBack' `
+            '--app-version' $appVersion `
+            '--input' $inputDir `
+            '--main-jar' 'mcBack.jar' `
+            '--main-class' 'com.mcback.App' `
+            '--runtime-image' $runtimeDir `
+            '--icon' (Join-Path $iconsDir 'icon.ico') `
+            '--java-options' '-Dfile.encoding=UTF-8' `
+            '--vendor' 'wumuji' `
+            '--description' 'mcBack - Minecraft Java 存档自动备份工具' `
+            '--win-menu' `
+            '--win-shortcut' `
+            '--win-dir-chooser' `
+            '--win-per-user-install' `
+            '--dest' $releaseDir
+        if ($LASTEXITCODE -ne 0) { throw "jpackage installer failed with exit code $LASTEXITCODE" }
+        # jpackage 输出的名字是 mcBack-<版本>.exe,统一改成 mcBack-<版本>-Setup.exe
+        $generated = Join-Path $releaseDir ("mcBack-{0}.exe" -f $appVersion)
+        if (Test-Path -LiteralPath $generated) {
+            Move-Item -LiteralPath $generated -Destination $setupPath -Force
+        }
+        if (-not (Test-Path -LiteralPath $setupPath)) { throw "installer was not produced" }
+        Write-Host ('[package] installer: {0} ({1} MB)' -f $setupPath,
+            [math]::Round((Get-Item $setupPath).Length / 1MB, 1))
+    } else {
+        Write-Host '[package] skipping installer: .tools\wix not found (WiX Toolset 3 binaries required)'
+    }
+}
 Write-Host '[package] done'
