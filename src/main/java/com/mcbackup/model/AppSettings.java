@@ -26,6 +26,10 @@ public final class AppSettings {
     private int retainCount = 20;
     /** 快速备份:区域文件(.mca)不重复压缩。速度约快 8 倍,体积约大 1.5 倍。 */
     private boolean fastBackup = true;
+    /** 是否在备份完成后计算整包 SHA-256(多读一遍磁盘,默认关闭)。 */
+    private boolean fullVerify = false;
+    /** 关闭窗口时最小化到系统托盘。 */
+    private boolean minimizeToTray = false;
 
     /** 默认备份位置:%USERPROFILE%\MCBackups。 */
     public static String defaultBackupDir() {
@@ -115,6 +119,22 @@ public final class AppSettings {
 
     public void setFastBackup(boolean fastBackup) {
         this.fastBackup = fastBackup;
+    }
+
+    public boolean isFullVerify() {
+        return fullVerify;
+    }
+
+    public void setFullVerify(boolean fullVerify) {
+        this.fullVerify = fullVerify;
+    }
+
+    public boolean isMinimizeToTray() {
+        return minimizeToTray;
+    }
+
+    public void setMinimizeToTray(boolean minimizeToTray) {
+        this.minimizeToTray = minimizeToTray;
     }
 
     public void setRetainCount(int retainCount) {

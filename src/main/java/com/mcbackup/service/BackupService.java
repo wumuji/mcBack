@@ -123,6 +123,13 @@ public final class BackupService {
 
             // 5) 清单(放在提交之后,避免出现「有清单却没有 ZIP」)
             long zipBytes = sizeOf(finalZip);
+            String sha256 = "";
+            if (options.computeHash()) {
+                progress.onProgress("计算哈希", 0, 0, "SHA-256");
+                long hashStarted = System.currentTimeMillis();
+                sha256 = com.mcbackup.util.Hashing.sha256Quietly(finalZip);
+                Log.info("SHA-256 计算完成(%d ms): %s", System.currentTimeMillis() - hashStarted, sha256);
+            }
             BackupRecord record = new BackupRecord(
                     BackupRecord.PRODUCER,
                     world.folderName(),
@@ -139,6 +146,7 @@ public final class BackupService {
                     copy.complete() ? BackupRecord.STATUS_OK : BackupRecord.STATUS_INCOMPLETE,
                     copy.failedFiles().size(),
                     List.copyOf(warnings),
+                    sha256,
                     zipFileName,
                     finalZip,
                     null);
@@ -173,7 +181,7 @@ public final class BackupService {
                 record.worldPath(), record.sourceLabel(), record.createdAt(), record.durationMillis(),
                 record.zipBytes(), record.fileCount(), record.sourceBytes(), record.sourceChangeStamp(),
                 record.strategy(), record.status(), record.failedFiles(), record.warnings(),
-                record.zipFileName(), zip, manifest);
+                record.sha256(), record.zipFileName(), zip, manifest);
     }
 
     /** 失败或中断时清理本次产生的临时文件(不影响已有备份)。 */

@@ -89,6 +89,8 @@ public final class SettingsRepository {
             settings.setAutoBackupIntervalMinutes(clamp(Json.optInt(root, "autoBackupIntervalMinutes", 10), 1, 1440));
             settings.setRetainCount(clamp(Json.optInt(root, "retainCount", 20), 1, 1000));
             settings.setFastBackup(Json.optBoolean(root, "fastBackup", true));
+            settings.setFullVerify(Json.optBoolean(root, "fullVerify", false));
+            settings.setMinimizeToTray(Json.optBoolean(root, "minimizeToTray", false));
             Log.info("已加载配置: %s (主题=%s, 手动目录=%d)", file, settings.getTheme(),
                     settings.getManualWorldDirs().size());
             return settings;
@@ -148,6 +150,8 @@ public final class SettingsRepository {
         root.put("autoBackupIntervalMinutes", settings.getAutoBackupIntervalMinutes());
         root.put("retainCount", settings.getRetainCount());
         root.put("fastBackup", settings.isFastBackup());
+        root.put("fullVerify", settings.isFullVerify());
+        root.put("minimizeToTray", settings.isMinimizeToTray());
         return root;
     }
 

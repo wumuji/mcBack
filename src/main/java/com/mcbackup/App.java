@@ -23,19 +23,20 @@ import java.util.List;
 public final class App {
 
     public static final String NAME = "MC Backup";
-    public static final String VERSION = "0.2.0-phase2";
+    public static final String VERSION = "0.3.0";
 
     private App() {
     }
 
     /** 命令行参数。 */
-    public record CliOptions(Path screenshotDir, List<Path> roots, Path backupDir, boolean consoleLog,
-                             boolean noAutoScan) {
+    public record CliOptions(Path screenshotDir, List<Path> roots, Path backupDir, Path exportIconsDir,
+                             boolean consoleLog, boolean noAutoScan) {
 
         public static CliOptions parse(String[] args) {
             Path screenshot = null;
             List<Path> roots = new ArrayList<>();
             Path backupDir = null;
+            Path exportIcons = null;
             boolean console = false;
             boolean noAutoScan = false;
             if (args != null) {
@@ -60,13 +61,18 @@ public final class App {
                                 backupDir = PathUtils.toPath(args[++i]);
                             }
                         }
+                        case "--export-icons" -> {
+                            if (i + 1 < args.length) {
+                                exportIcons = PathUtils.toPath(args[++i]);
+                            }
+                        }
                         case "--console-log" -> console = true;
                         case "--no-auto-scan" -> noAutoScan = true;
                         default -> Log.warn("未知命令行参数: " + arg);
                     }
                 }
             }
-            return new CliOptions(screenshot, roots, backupDir, console, noAutoScan);
+            return new CliOptions(screenshot, roots, backupDir, exportIcons, console, noAutoScan);
         }
     }
 
@@ -85,6 +91,22 @@ public final class App {
         AppSettings settings = repository.load();
         ThemeManager.setOption(settings.getTheme());
         ThemeManager.applyDefaults();
+
+        // 打包脚本用它导出 exe 图标(与窗口/托盘图标同源),导出后直接退出
+        if (options.exportIconsDir() != null) {
+            try {
+                com.mcbackup.ui.components.AppIcon.writePng(
+                        options.exportIconsDir().resolve("icon-256.png"), 256);
+                com.mcbackup.ui.components.AppIcon.writeIco(
+                        options.exportIconsDir().resolve("icon.ico"), 16, 32, 48, 256);
+                Log.info("图标已导出到 " + PathUtils.toDisplayPath(options.exportIconsDir()));
+                System.out.println("icons exported to " + options.exportIconsDir());
+            } catch (Exception e) {
+                Log.error("导出图标失败", e);
+                System.exit(3);
+            }
+            return;
+        }
 
         boolean screenshotMode = options.screenshotDir() != null;
         SwingUtilities.invokeLater(() -> {

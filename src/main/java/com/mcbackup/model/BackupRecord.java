@@ -30,6 +30,7 @@ public record BackupRecord(
         String status,
         int failedFiles,
         List<String> warnings,
+        String sha256,
         String zipFileName,
         Path zipPath,
         Path manifestPath) {
@@ -66,5 +67,10 @@ public record BackupRecord(
 
     public String durationText() {
         return durationMillis < 1000 ? durationMillis + " ms" : String.format("%.1f 秒", durationMillis / 1000.0);
+    }
+
+    /** 是否记录了整包哈希(用于「校验」按钮判断能否做深度校验)。 */
+    public boolean hasHash() {
+        return sha256 != null && !sha256.isBlank();
     }
 }

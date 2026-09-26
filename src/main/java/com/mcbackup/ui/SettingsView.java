@@ -58,6 +58,10 @@ public class SettingsView extends JPanel implements ThemeAware {
         void onRetainCountChanged(int count);
 
         void onCompressionChanged(boolean fast);
+
+        void onFullVerifyChanged(boolean enabled);
+
+        void onMinimizeToTrayChanged(boolean enabled);
     }
 
     private final AppSettings settings;
@@ -76,6 +80,8 @@ public class SettingsView extends JPanel implements ThemeAware {
             new String[]{"5 份", "10 份", "20 份", "50 份", "100 份", "不限制"});
     private final JComboBox<String> compressionCombo = new JComboBox<>(
             new String[]{"快速(区域文件不重复压缩)", "体积优先(全部压缩)"});
+    private final FlatButton fullVerifyButton = new FlatButton("关闭");
+    private final FlatButton trayButton = new FlatButton("关闭");
     private ScanResult lastResult = ScanResult.empty();
     /** 程序化更新控件时抑制回调,避免出现循环触发。 */
     private boolean updating;
@@ -204,6 +210,31 @@ public class SettingsView extends JPanel implements ThemeAware {
         hint.setAlignmentX(LEFT_ALIGNMENT);
         column.add(hint);
 
+        column.add(Box.createVerticalStrut(12));
+        JPanel switches = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        switches.setOpaque(false);
+        switches.setAlignmentX(LEFT_ALIGNMENT);
+        fullVerifyButton.setToolTipText("开启后,每次备份会额外计算整包 SHA-256(多读一遍磁盘,GB 级世界慢 1~2 秒)");
+        fullVerifyButton.addActionListener(e -> {
+            boolean enabled = !settings.isFullVerify();
+            settings.setFullVerify(enabled);
+            refreshBackupControls();
+            callbacks.onFullVerifyChanged(enabled);
+        });
+        trayButton.setToolTipText("关闭窗口时收进系统托盘继续自动备份;托盘不可用时自动忽略此设置");
+        trayButton.addActionListener(e -> {
+            boolean enabled = !settings.isMinimizeToTray();
+            settings.setMinimizeToTray(enabled);
+            refreshBackupControls();
+            callbacks.onMinimizeToTrayChanged(enabled);
+        });
+        switches.add(new TLabel("完整校验(SHA-256):", TLabel.Role.MUTED));
+        switches.add(fullVerifyButton);
+        switches.add(Box.createHorizontalStrut(12));
+        switches.add(new TLabel("最小化到托盘:", TLabel.Role.MUTED));
+        switches.add(trayButton);
+        column.add(switches);
+
         card.add(column, BorderLayout.CENTER);
         return card;
     }
@@ -220,6 +251,12 @@ public class SettingsView extends JPanel implements ThemeAware {
             intervalCombo.setEnabled(enabled);
             retainCombo.setSelectedIndex(indexForRetainCount(settings.getRetainCount()));
             compressionCombo.setSelectedIndex(settings.isFastBackup() ? 0 : 1);
+            fullVerifyButton.setText(settings.isFullVerify() ? "已开启" : "关闭");
+            fullVerifyButton.setVariant(settings.isFullVerify()
+                    ? FlatButton.Variant.PRIMARY : FlatButton.Variant.SECONDARY);
+            trayButton.setText(settings.isMinimizeToTray() ? "已开启" : "关闭");
+            trayButton.setVariant(settings.isMinimizeToTray()
+                    ? FlatButton.Variant.PRIMARY : FlatButton.Variant.SECONDARY);
         } finally {
             updating = false;
         }

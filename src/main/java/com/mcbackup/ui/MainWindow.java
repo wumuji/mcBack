@@ -14,12 +14,15 @@ import com.mcbackup.service.BackupException;
 import com.mcbackup.service.BackupScheduler;
 import com.mcbackup.service.BackupService;
 import com.mcbackup.service.ExportService;
+import com.mcbackup.service.IntegrityService;
 import com.mcbackup.service.LauncherDetector;
+import com.mcbackup.service.RestoreService;
 import com.mcbackup.service.WorldRootProvider;
 import com.mcbackup.service.WorldScanner;
 import com.mcbackup.storage.BackupRepository;
 import com.mcbackup.storage.SettingsRepository;
 import com.mcbackup.ui.components.ScrollPaneStyler;
+import com.mcbackup.ui.components.AppIcon;
 import com.mcbackup.ui.theme.ThemeAware;
 import com.mcbackup.ui.theme.ThemeManager;
 import com.mcbackup.util.FileUtils;
@@ -91,6 +94,7 @@ public class MainWindow extends JFrame implements ThemeAware {
     private BackupRepository backupRepository;
     private BackupService backupService;
     private final ExportService exportService = new ExportService();
+    private final IntegrityService integrityService = new IntegrityService();
     private BackupScheduler scheduler;
 
     private final CardLayout pageLayout = new CardLayout();
@@ -170,6 +174,16 @@ public class MainWindow extends JFrame implements ThemeAware {
             public void onDeleteRecord(BackupRecord record) {
                 deleteRecord(record);
             }
+
+            @Override
+            public void onVerifyRecord(BackupRecord record) {
+                verifyRecord(record);
+            }
+
+            @Override
+            public void onRestoreRecord(BackupRecord record) {
+                restoreRecord(record);
+            }
         });
         exportView = new ExportView(new ExportView.Callbacks() {
             @Override
@@ -233,6 +247,17 @@ public class MainWindow extends JFrame implements ThemeAware {
                         ? "压缩方式:快速(区域文件直接存储,备份更快、体积略大)"
                         : "压缩方式:体积优先(全部重新压缩,速度较慢)");
             }
+
+            @Override
+            public void onFullVerifyChanged(boolean enabled) {
+                saveSettings(enabled ? "已开启完整校验:每次备份额外计算 SHA-256" : "已关闭完整校验");
+            }
+
+            @Override
+            public void onMinimizeToTrayChanged(boolean enabled) {
+                saveSettings(enabled ? "已开启最小化到托盘" : "已关闭最小化到托盘");
+                installTray();
+            }
         }, repository.logsDir());
 
         pageHost.setOpaque(false);
@@ -252,7 +277,9 @@ public class MainWindow extends JFrame implements ThemeAware {
         rebuildBackupServices();
         navigate("world");
         applyAutoBackupSettings();
+        setIconImage(AppIcon.render(64));
         applyTheme();
+        installTray();
         ThemeManager.addListener(themeListener);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -299,7 +326,8 @@ public class MainWindow extends JFrame implements ThemeAware {
     }
 
     private BackupOptions backupOptions() {
-        return BackupOptions.of(settings.backupDirPath(), settings.getRetainCount(), settings.isFastBackup());
+        return BackupOptions.of(settings.backupDirPath(), settings.getRetainCount(),
+                settings.isFastBackup(), settings.isFullVerify());
     }
 
     private void applyAutoBackupSettings() {
@@ -547,6 +575,121 @@ public class MainWindow extends JFrame implements ThemeAware {
         });
     }
 
+    /** 校验一份备份:结构 + (有记录时)SHA-256。 */
+    private void verifyRecord(BackupRecord record) {
+        submitTask("正在校验 " + record.zipFileName() + "…", listener -> {
+            IntegrityService.IntegrityReport report = integrityService.verify(record, listener);
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                    report.summary() + "\n\n文件:" + record.zipFileName()
+                            + "\n条目:" + report.fileEntries() + " 个文件"
+                            + "\n耗时:" + report.durationMillis() + " ms"
+                            + (report.hashChecked()
+                                    ? "\n清单哈希:" + shortHash(report.storedHash())
+                                            + "\n实际哈希:" + shortHash(report.actualHash())
+                                    : ""),
+                    "备份校验", report.valid() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE));
+            return report.summary();
+        });
+    }
+
+    private static String shortHash(String hash) {
+        if (hash == null || hash.isBlank()) {
+            return "(无)";
+        }
+        return hash.length() <= 16 ? hash : hash.substring(0, 16) + "…";
+    }
+
+    /** 恢复一份备份。 */
+    private void restoreRecord(BackupRecord record) {
+        Path target = resolveRestoreTarget(record);
+        if (target == null) {
+            return;
+        }
+        submitTask("正在恢复 " + record.zipFileName() + "…", listener -> {
+            RestoreService.RestoreResult result = new RestoreService()
+                    .restore(record.zipPath(), new RestoreService.RestoreOptions(target, record.sha256()), listener);
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(this,
+                        "恢复完成。\n\n世界目录:" + PathUtils.toDisplayPath(result.worldDir())
+                                + (result.originalBackupDir() == null ? ""
+                                        : "\n原世界已保留:" + PathUtils.toDisplayPath(result.originalBackupDir()))
+                                + "\n文件数:" + result.fileCount()
+                                + "\n耗时:" + result.durationMillis() + " ms"
+                                + "\n\n确认世界正常后,可以自行删除保留的那份原世界。",
+                        "恢复完成", JOptionPane.INFORMATION_MESSAGE);
+                rescan(false);
+            });
+            return "恢复完成:" + PathUtils.toDisplayPath(result.worldDir());
+        });
+    }
+
+    /** 决定恢复到哪个世界目录:优先用备份清单里记录的原路径。 */
+    private Path resolveRestoreTarget(BackupRecord record) {
+        String recorded = record.worldPath();
+        if (recorded != null && !recorded.isBlank()) {
+            return Path.of(recorded);
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("选择恢复成哪个世界目录(建议放在 saves 目录下)");
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setAcceptAllFileFilterUsed(false);
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return null;
+        }
+        File selected = chooser.getSelectedFile();
+        return selected == null ? null : selected.toPath();
+    }
+
+    // ------------------------------------------------------------------
+    // 系统托盘
+    // ------------------------------------------------------------------
+
+    private void installTray() {
+        if (!settings.isMinimizeToTray()) {
+            TraySupport.remove();
+            return;
+        }
+        if (!TraySupport.isSupported()) {
+            topBar.setStatus("当前环境不支持系统托盘,已忽略「最小化到托盘」设置");
+            return;
+        }
+        boolean installed = TraySupport.install(new TraySupport.Actions() {
+            @Override
+            public void showWindow() {
+                SwingUtilities.invokeLater(MainWindow.this::restoreFromTray);
+            }
+
+            @Override
+            public void backupChangedWorlds() {
+                // 与自动备份走同一套逻辑:只备份有变化的世界
+                SwingUtilities.invokeLater(() -> topBar.setStatus("托盘触发:正在检查需要备份的世界…"));
+                workerExecutor.submit(() -> scheduler.tick());
+            }
+
+            @Override
+            public void exitApplication() {
+                SwingUtilities.invokeLater(MainWindow.this::exitApplication);
+            }
+        });
+        if (installed && !isVisible()) {
+            restoreFromTray();
+        }
+    }
+
+    private void restoreFromTray() {
+        setVisible(true);
+        setState(JFrame.NORMAL);
+        toFront();
+        repaint();
+    }
+
+    private void hideToTray() {
+        setVisible(false);
+        TraySupport.notifyMessage(App.NAME,
+                "程序仍在后台运行,自动备份继续生效。双击托盘图标可以重新打开窗口。");
+        Log.info("窗口已最小化到托盘");
+    }
+
     private void openBackupDir() {
         try {
             backupRepository.ensureExists();
@@ -732,6 +875,16 @@ public class MainWindow extends JFrame implements ThemeAware {
     }
 
     private void closeApplication() {
+        // 开了「最小化到托盘」时,关闭按钮只是把窗口收起来,自动备份继续在后台跑
+        if (TraySupport.isInstalled() && settings.isMinimizeToTray()) {
+            hideToTray();
+            return;
+        }
+        exitApplication();
+    }
+
+    /** 真正退出程序。 */
+    private void exitApplication() {
         if (busy.get()) {
             int answer = JOptionPane.showConfirmDialog(this,
                     "还有任务正在执行(备份/导出)。确定要退出吗?\n未完成的临时文件会保留在备份目录里。",
@@ -759,6 +912,7 @@ public class MainWindow extends JFrame implements ThemeAware {
 
     /** 释放后台资源(测试与正常退出都会调用)。 */
     void shutdown() {
+        TraySupport.remove();
         ThemeManager.removeListener(themeListener);
         if (scheduler != null) {
             scheduler.shutdown();

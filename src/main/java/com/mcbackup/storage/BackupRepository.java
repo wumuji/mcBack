@@ -202,7 +202,7 @@ public final class BackupRepository {
             records.add(new BackupRecord("", worldDir.getFileName().toString(),
                     worldDir.getFileName().toString(), "", "非本程序生成", FileUtils.lastModifiedMillis(zip),
                     0L, sizeOf(zip), 0, 0L, 0L, BackupRecord.STRATEGY_FULL, "UNKNOWN", 0,
-                    List.of("没有找到对应的清单文件,不会被自动清理或删除"),
+                    List.of("没有找到对应的清单文件,不会被自动清理或删除"), "",
                     zipName, zip, null));
             Log.info("发现非本程序生成的 ZIP(只读展示): %s", PathUtils.toDisplayPath(zip));
         }
@@ -238,6 +238,7 @@ public final class BackupRepository {
                     Json.optString(root, "status", BackupRecord.STATUS_OK),
                     Json.optInt(root, "failedFiles", 0),
                     Json.optStringList(root, "warnings"),
+                    Json.optString(root, "sha256", ""),
                     zipFileName,
                     zip,
                     manifest);
@@ -265,6 +266,7 @@ public final class BackupRepository {
         root.put("status", record.status());
         root.put("failedFiles", record.failedFiles());
         root.put("warnings", new ArrayList<>(record.warnings()));
+        root.put("sha256", record.sha256() == null ? "" : record.sha256());
         root.put("zipFileName", record.zipFileName());
         return root;
     }

@@ -47,6 +47,10 @@ public class BackupView extends JPanel implements ThemeAware {
         void onExportRecord(BackupRecord record, Path targetZip);
 
         void onDeleteRecord(BackupRecord record);
+
+        void onVerifyRecord(BackupRecord record);
+
+        void onRestoreRecord(BackupRecord record);
     }
 
     private final Callbacks callbacks;
@@ -228,13 +232,23 @@ public class BackupView extends JPanel implements ThemeAware {
 
             FlatButton open = new FlatButton("打开目录", FlatButton.Variant.GHOST);
             open.addActionListener(e -> FileUtils.openInFileBrowser(record.zipPath()));
-            FlatButton export = new FlatButton("导出");
+            FlatButton verify = new FlatButton("校验", FlatButton.Variant.GHOST);
+            verify.setToolTipText(record.hasHash()
+                    ? "校验 ZIP 结构并核对 SHA-256"
+                    : "校验 ZIP 结构(该备份未记录 SHA-256)");
+            verify.addActionListener(e -> callbacks.onVerifyRecord(record));
+            FlatButton restore = new FlatButton("恢复");
+            restore.setToolTipText("把这份备份还原成世界;原世界会保留为 .restore-backup-…");
+            restore.addActionListener(e -> confirmRestore());
+            FlatButton export = new FlatButton("导出", FlatButton.Variant.GHOST);
             export.setEnabled(record.zipPath() != null);
             export.addActionListener(e -> chooseExportTarget());
             FlatButton delete = new FlatButton("删除", FlatButton.Variant.DANGER);
             delete.setEnabled(record.managed());
             delete.setToolTipText(record.managed() ? "删除这份备份" : "非本程序生成的 ZIP,不能在这里删除");
             delete.addActionListener(e -> confirmDelete());
+            right.add(verify);
+            right.add(restore);
             right.add(open);
             right.add(export);
             right.add(delete);
@@ -274,6 +288,23 @@ public class BackupView extends JPanel implements ThemeAware {
                     "删除备份", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (answer == JOptionPane.YES_OPTION) {
                 callbacks.onDeleteRecord(record);
+            }
+        }
+
+        private void confirmRestore() {
+            String target = record.worldPath() == null || record.worldPath().isBlank()
+                    ? "(这份备份没有记录原世界路径,恢复时会让你选择一个目录)"
+                    : PathUtils.toDisplayPath(Path.of(record.worldPath()));
+            int answer = JOptionPane.showConfirmDialog(BackupView.this,
+                    "恢复这份备份?\n\n"
+                            + "备份:" + record.zipFileName() + "\n"
+                            + "备份时间:" + record.createdText() + "\n"
+                            + "恢复到:" + target + "\n\n"
+                            + "恢复前会先把当前世界改名保留为 \"世界名.restore-backup-时间戳\",\n"
+                            + "不会删除任何东西。如果 Minecraft 正在使用这个世界,恢复会被拒绝。",
+                    "恢复备份", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (answer == JOptionPane.YES_OPTION) {
+                callbacks.onRestoreRecord(record);
             }
         }
     }

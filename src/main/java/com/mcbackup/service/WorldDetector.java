@@ -74,14 +74,35 @@ public final class WorldDetector {
 
     /** 完整探测。 */
     public static Detection detect(Path dir) {
+        return detect(dir, true);
+    }
+
+    /**
+     * 只按内容判断,忽略目录名相关的排除规则。
+     *
+     * <p>用于校验「解压出来的内容是否是一个完整世界」:恢复临时目录名以点开头(刻意隐藏,
+     * 避免被游戏或本程序当成正常世界),但内容本身必须是标准世界结构。</p>
+     */
+    public static Detection detectContent(Path dir) {
+        return detect(dir, false);
+    }
+
+    /** 内容是否构成一个世界(忽略目录名排除规则)。 */
+    public static boolean isWorldContent(Path dir) {
+        return detectContent(dir).isWorld();
+    }
+
+    private static Detection detect(Path dir, boolean applyNameRules) {
         if (dir == null) {
             return Detection.notAWorld("路径为空");
         }
         Path fileName = dir.getFileName();
         String name = fileName == null ? "" : fileName.toString();
-        String exclusion = exclusionReason(name);
-        if (exclusion != null) {
-            return new Detection(false, false, 0, List.of(), exclusion);
+        if (applyNameRules) {
+            String exclusion = exclusionReason(name);
+            if (exclusion != null) {
+                return new Detection(false, false, 0, List.of(), exclusion);
+            }
         }
         boolean hasLevelDat = PathUtils.isFile(dir.resolve("level.dat"));
         if (!hasLevelDat) {

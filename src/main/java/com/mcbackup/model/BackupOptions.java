@@ -10,14 +10,19 @@ import java.nio.file.Path;
  * @param verify     ZIP 完成后是否做完整性校验(默认开启,只读中央目录,成本极低)
  * @param storeRegionFiles 区域文件(.mca)直接存储、不重复压缩:备份更快、CPU 更省,但 ZIP 更大
  */
-public record BackupOptions(Path backupDir, int retainCount, boolean verify, boolean storeRegionFiles) {
+public record BackupOptions(Path backupDir, int retainCount, boolean verify, boolean storeRegionFiles,
+                            boolean computeHash) {
 
     public static BackupOptions of(Path backupDir, int retainCount) {
-        return new BackupOptions(backupDir, retainCount, true, true);
+        return new BackupOptions(backupDir, retainCount, true, true, false);
     }
 
     public static BackupOptions of(Path backupDir, int retainCount, boolean storeRegionFiles) {
-        return new BackupOptions(backupDir, retainCount, true, storeRegionFiles);
+        return new BackupOptions(backupDir, retainCount, true, storeRegionFiles, false);
+    }
+
+    public static BackupOptions of(Path backupDir, int retainCount, boolean storeRegionFiles, boolean computeHash) {
+        return new BackupOptions(backupDir, retainCount, true, storeRegionFiles, computeHash);
     }
 
     /** 是否启用保留策略。 */
