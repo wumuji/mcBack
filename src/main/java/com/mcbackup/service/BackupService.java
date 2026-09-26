@@ -38,6 +38,8 @@ public final class BackupService {
     private static final DateTimeFormatter FILE_STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
     /** 备份期间 Minecraft 可能仍在改写文件,因此复制阶段允许重试。 */
     private static final int COPY_RETRIES = 3;
+    /** 备份期间需要的空间系数:临时副本(≈源大小)+ ZIP(最坏情况≈源大小)+ 余量。 */
+    private static final double SPACE_FACTOR = 2.1;
 
     private final BackupRepository repository;
 
@@ -72,6 +74,15 @@ public final class BackupService {
             Files.createDirectories(repository.tempDir());
         } catch (IOException e) {
             throw new BackupException("无法创建备份目录:" + PathUtils.toDisplayPath(options.backupDir()), e);
+        }
+
+        // 空间检查:提前失败,好过压到一半磁盘满
+        long sourceBytes = world.sizeBytes() > 0 ? world.sizeBytes() : FileUtils.directorySize(worldDir);
+        try {
+            long usable = Files.getFileStore(repository.backupDir()).getUsableSpace();
+            ensureEnoughSpace(usable, sourceBytes, PathUtils.toDisplayPath(repository.backupDir()));
+        } catch (IOException e) {
+            Log.warn("无法检查备份目录剩余空间,继续尝试备份: %s", e.getMessage());
         }
 
         String baseName = PathUtils.sanitizeFileName(world.displayName())
@@ -146,6 +157,7 @@ public final class BackupService {
                     copy.complete() ? BackupRecord.STATUS_OK : BackupRecord.STATUS_INCOMPLETE,
                     copy.failedFiles().size(),
                     List.copyOf(warnings),
+                    world.possiblyRunning(),
                     sha256,
                     zipFileName,
                     finalZip,
@@ -181,7 +193,28 @@ public final class BackupService {
                 record.worldPath(), record.sourceLabel(), record.createdAt(), record.durationMillis(),
                 record.zipBytes(), record.fileCount(), record.sourceBytes(), record.sourceChangeStamp(),
                 record.strategy(), record.status(), record.failedFiles(), record.warnings(),
+                record.sourceRunning(),
                 record.sha256(), record.zipFileName(), zip, manifest);
+    }
+
+    /** 备份这个大小的世界需要多少可用空间。 */
+    static long requiredSpaceBytes(long sourceBytes) {
+        return sourceBytes <= 0 ? 0L : (long) (sourceBytes * SPACE_FACTOR);
+    }
+
+    /**
+     * 空间是否够用;不够就抛出带明确数字的异常。
+     *
+     * <p>抽成纯函数是为了能直接测试(真造一个磁盘满的环境不现实)。</p>
+     */
+    static void ensureEnoughSpace(long usableBytes, long sourceBytes, String backupDirText) {
+        long required = requiredSpaceBytes(sourceBytes);
+        if (required > 0 && usableBytes < required) {
+            throw new BackupException("备份目录剩余空间不足:备份这个存档需要约 "
+                    + FileUtils.humanSize(required) + ",当前可用 "
+                    + FileUtils.humanSize(usableBytes) + "(" + backupDirText
+                    + "\\n备份过程需要同时放下临时副本和 ZIP,可以先清理旧备份或换一个磁盘。");
+        }
     }
 
     /** 失败或中断时清理本次产生的临时文件(不影响已有备份)。 */

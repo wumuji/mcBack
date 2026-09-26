@@ -91,6 +91,20 @@ public final class App {
         // 必须在任何 AWT 类之前:部分机器启用了辅助功能,而裁剪后的运行时可能没有对应模块
         com.mcbackup.util.AccessibilityGuard.applyIfNeeded();
 
+        // 单实例:自动备份是常驻的,两个实例同时跑会互相抢同一个世界和备份目录
+        if (!com.mcbackup.util.SingleInstanceGuard.acquire(repository.baseDir().resolve(".instance.lock"))) {
+            Log.warn("检测到已有 MC Backup 在运行,本次启动退出");
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                javax.swing.JOptionPane.showMessageDialog(null,
+                        "MC Backup 已经在运行。\n\n"
+                                + "同一个存档只能被一个实例备份,请在任务栏或系统托盘里找到已经打开的窗口。\n"
+                                + "(如果确实找不到窗口,可以在任务管理器里结束 MCBackup.exe 后重试)",
+                        NAME, javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                System.exit(0);
+            });
+            return;
+        }
+
         AppSettings settings = repository.load();
         ThemeManager.setOption(settings.getTheme());
         ThemeManager.applyDefaults();

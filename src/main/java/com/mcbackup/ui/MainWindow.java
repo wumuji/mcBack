@@ -207,6 +207,11 @@ public class MainWindow extends JFrame implements ThemeAware {
             public void onOpenBackupDir() {
                 openBackupDir();
             }
+
+            @Override
+            public void onSelectRecentWorlds() {
+                selectRecentWorlds();
+            }
         });
         recordsView = new BackupRecordsView(new BackupRecordsView.Callbacks() {
             @Override
@@ -443,6 +448,30 @@ public class MainWindow extends JFrame implements ThemeAware {
         refreshAutoBackupView();
     }
 
+    /**
+     * 首次使用引导:把最近玩过的 3 个世界勾上。
+     *
+     * <p>只勾选、不自动开始备份,让用户自己按「开始自动备份」——避免未经确认就开始写磁盘。</p>
+     */
+    private void selectRecentWorlds() {
+        List<MinecraftWorld> recent = lastResult.worlds().stream()
+                .sorted(java.util.Comparator.comparingLong(MinecraftWorld::lastModified).reversed())
+                .limit(3)
+                .toList();
+        if (recent.isEmpty()) {
+            topBar.setStatus("还没有发现存档,可以先到设置里添加存档目录");
+            return;
+        }
+        for (MinecraftWorld world : recent) {
+            settings.setAutoBackupTarget(BackupTargets.key(world), true);
+        }
+        repository.save(settings);
+        autoBackupView.setAutoBackupState(scheduler.isRunning(), settings.hasAutoBackupTargets());
+        refreshAutoBackupView();
+        topBar.setStatus("已勾选最近玩过的 " + recent.size() + " 个世界,点「开始自动备份」即可");
+        Log.info("首次引导:已勾选最近玩过的 %d 个世界", recent.size());
+    }
+
     private void updateCountdownTimer() {
         boolean shouldRun = "backup".equals(currentPage) && scheduler.isRunning();
         if (shouldRun && !countdownTimer.isRunning()) {
@@ -473,7 +502,7 @@ public class MainWindow extends JFrame implements ThemeAware {
         public void onBackupStarted(MinecraftWorld world) {
             SwingUtilities.invokeLater(() -> {
                 autoBackupStatusHint = "正在备份:" + world.displayName();
-                autoBackupView.setStatusHint(autoBackupStatusHint);
+                autoBackupView.setStatusHint(autoBackupStatusHint, false);
             });
         }
 
@@ -482,15 +511,19 @@ public class MainWindow extends JFrame implements ThemeAware {
             SwingUtilities.invokeLater(() -> {
                 autoBackupStatusHint = "上次备份:" + world.displayName() + " " + result.record().createdText()
                         + "(" + result.record().sizeText() + ")";
-                autoBackupView.setStatusHint(autoBackupStatusHint);
+                autoBackupView.setStatusHint(autoBackupStatusHint, false);
+                recordsView.setNotice("", false);
             });
         }
 
         @Override
         public void onBackupFailed(MinecraftWorld world, Exception error) {
             SwingUtilities.invokeLater(() -> {
+                String message = "自动备份失败:" + world.displayName() + " — " + error.getMessage();
                 autoBackupStatusHint = "上次备份失败:" + world.displayName() + "(详见日志)";
-                autoBackupView.setStatusHint(autoBackupStatusHint);
+                autoBackupView.setStatusHint(autoBackupStatusHint, true);
+                recordsView.setNotice(message + "(详情见日志,不会影响原存档)", true);
+                TraySupport.notifyMessage(App.NAME + " 自动备份失败", message);
             });
         }
 
@@ -500,7 +533,7 @@ public class MainWindow extends JFrame implements ThemeAware {
                 if (backedUp + skipped > 0) {
                     autoBackupStatusHint = "上次检查:备份 " + backedUp + " 个,跳过 " + skipped
                             + " 个(没有变化)";
-                    autoBackupView.setStatusHint(autoBackupStatusHint);
+                    autoBackupView.setStatusHint(autoBackupStatusHint, false);
                 }
                 refreshAutoBackupView();
                 refreshRecordsView();
@@ -666,7 +699,7 @@ public class MainWindow extends JFrame implements ThemeAware {
     private void refreshAutoBackupView() {
         autoBackupView.setContext(settings, lastResult, latestByFolder(), countByFolder());
         autoBackupView.setAutoBackupState(scheduler.isRunning(), settings.hasAutoBackupTargets());
-        autoBackupView.setStatusHint(autoBackupStatusHint);
+        autoBackupView.setStatusHint(autoBackupStatusHint, autoBackupStatusHint.contains("失败"));
     }
 
     private void refreshRecordsView() {
@@ -1114,6 +1147,7 @@ public class MainWindow extends JFrame implements ThemeAware {
     void shutdown() {
         countdownTimer.stop();
         TraySupport.remove();
+        com.mcbackup.util.SingleInstanceGuard.release();
         ThemeManager.removeListener(themeListener);
         if (scheduler != null) {
             scheduler.shutdown();

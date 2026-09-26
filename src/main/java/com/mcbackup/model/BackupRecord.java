@@ -30,6 +30,7 @@ public record BackupRecord(
         String status,
         int failedFiles,
         List<String> warnings,
+        boolean sourceRunning,
         String sha256,
         String zipFileName,
         Path zipPath,

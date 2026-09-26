@@ -70,6 +70,9 @@ public class AutoBackupView extends JPanel implements ThemeAware {
         void onOpenBackupSettings();
 
         void onOpenBackupDir();
+
+        /** 一键把最近玩过的几个世界纳入自动备份(首次使用引导)。 */
+        void onSelectRecentWorlds();
     }
 
     private final Callbacks callbacks;
@@ -80,6 +83,8 @@ public class AutoBackupView extends JPanel implements ThemeAware {
     private final FlatButton startPauseButton = new FlatButton("开始自动备份", FlatButton.Variant.PRIMARY);
     private final FlatButton backupOnceButton = new FlatButton("立即备份一次");
     private final FlatButton settingsButton = new FlatButton("备份设置…", FlatButton.Variant.GHOST);
+    private final FlatButton guideButton = new FlatButton("勾选最近玩过的 3 个世界", FlatButton.Variant.PRIMARY);
+    private final JPanel guideRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4));
 
     private final JPanel groupList = new JPanel();
     private final JPanel worldList = new JPanel();
@@ -128,6 +133,13 @@ public class AutoBackupView extends JPanel implements ThemeAware {
         texts.add(firstLine);
         texts.add(Box.createVerticalStrut(4));
         texts.add(summaryLabel);
+        guideButton.setToolTipText("自动备份只备份你勾选的存档;这里可以一键把最近玩过的世界勾上");
+        guideButton.addActionListener(e -> callbacks.onSelectRecentWorlds());
+        guideRow.setOpaque(false);
+        guideRow.setAlignmentX(LEFT_ALIGNMENT);
+        guideRow.add(guideButton);
+        guideRow.setVisible(false);
+        texts.add(guideRow);
         card.add(texts, BorderLayout.CENTER);
 
         startPauseButton.addActionListener(e -> callbacks.onToggleAutoBackup());
@@ -246,11 +258,14 @@ public class AutoBackupView extends JPanel implements ThemeAware {
         countdownLabel.setText(text);
     }
 
-    /** 附加状态信息,例如上次备份结果。 */
-    public void setStatusHint(String text) {
+    /** 附加状态信息,例如上次备份结果。warning=true 时用警示色显示。 */
+    public void setStatusHint(String text, boolean warning) {
         this.statusHint = text == null ? "" : text;
+        this.statusWarning = warning;
         refreshSummary();
     }
+
+    private boolean statusWarning;
 
     public void setBusy(boolean busy) {
         this.busy = busy;
@@ -359,6 +374,9 @@ public class AutoBackupView extends JPanel implements ThemeAware {
         addField(column, "备份份数", count + " 份");
         addField(column, "最近备份", latest == null ? WorldText.UNKNOWN
                 : latest.createdText() + "(" + latest.sizeText() + ")");
+        if (latest != null && latest.sourceRunning()) {
+            addField(column, "备份时状态", "游戏正在运行(可能有个别文件未复制)");
+        }
         if (latest != null && !latest.complete()) {
             addField(column, "上次结果", "有 " + latest.failedFiles() + " 个文件未复制");
         }
@@ -426,6 +444,13 @@ public class AutoBackupView extends JPanel implements ThemeAware {
         int missing = BackupTargets.missingCount(scanResult.worlds(), settings.getAutoBackupTargets());
         StringBuilder text = new StringBuilder();
         text.append("已纳入 ").append(selected).append(" 个存档");
+        long selectedBytes = scanResult.worlds().stream()
+                .filter(world -> BackupTargets.isSelected(world, settings.getAutoBackupTargets()))
+                .mapToLong(MinecraftWorld::sizeBytes)
+                .sum();
+        if (selectedBytes > 0) {
+            text.append("(合计 ").append(FileUtils.humanSize(selectedBytes)).append(")");
+        }
         if (missing > 0) {
             text.append("(其中 ").append(missing).append(" 个当前未找到)");
         }
@@ -440,6 +465,14 @@ public class AutoBackupView extends JPanel implements ThemeAware {
             text.append(" · ").append(statusHint);
         }
         summaryLabel.setText(text.toString());
+        if (statusWarning) {
+            summaryLabel.setForeground(ThemeManager.palette().danger());
+        } else {
+            summaryLabel.onThemeChanged();
+        }
+        guideRow.setVisible(!settings.hasAutoBackupTargets());
+        revalidate();
+        repaint();
     }
 
     private static String groupName(MinecraftWorld world) {

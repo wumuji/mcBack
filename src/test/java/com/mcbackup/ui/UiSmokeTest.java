@@ -227,6 +227,55 @@ class UiSmokeTest {
         }
     }
 
+    @Test
+    void firstRunGuideSelectsRecentWorlds() throws Exception {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless(), "需要图形环境才能构建 Swing 界面");
+
+        Path saves = tempDir.resolve("saves4");
+        Files.createDirectories(saves);
+        for (int i = 1; i <= 4; i++) {
+            Path world = WorldFixtures.vanillaWorld(saves, "世界" + i, "世界" + i);
+            Files.setLastModifiedTime(world.resolve("level.dat"),
+                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - i * 60_000L));
+        }
+
+        AtomicReference<MainWindow> windowRef = new AtomicReference<>();
+        AtomicReference<AppSettings> settingsRef = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            SettingsRepository repository = new SettingsRepository(tempDir.resolve("config4"));
+            AppSettings settings = new AppSettings();
+            settings.setBackupDir(tempDir.resolve("backups4").toString());
+            settingsRef.set(settings);
+            WorldRootProvider provider = () -> List.of(
+                    new WorldRoot(saves.getParent(), saves, LocationKind.MANUAL, "测试", "测试"));
+            MainWindow window = new MainWindow(repository, settings, List.of(), false, provider);
+            window.setSize(1200, 720);
+            window.addNotify();
+            window.validate();
+            window.scanNowBlocking();
+            windowRef.set(window);
+        });
+
+        MainWindow window = windowRef.get();
+        try {
+            assertTrue(settingsRef.get().getAutoBackupTargets().isEmpty(), "一开始不应勾选任何存档");
+            SwingUtilities.invokeAndWait(() -> {
+                FlatButton guide = findButton(window.getContentPane(), "勾选最近玩过的 3 个世界");
+                assertNotNull(guide, "首次使用时应显示引导按钮");
+                assertTrue(guide.isVisible(), "没有勾选任何存档时引导按钮应可见");
+                guide.doClick();
+            });
+            assertEquals(3, settingsRef.get().getAutoBackupTargets().size(),
+                    "引导按钮应勾选最近玩过的 3 个世界");
+            assertEquals(3, window.selectedWorldCount());
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                window.shutdown();
+                window.dispose();
+            });
+        }
+    }
+
     private static void assertOpaqueBackgroundsAreLight(Container root) {
         List<JComponent> opaque = new ArrayList<>();
         collectOpaque(root, opaque);

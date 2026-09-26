@@ -53,6 +53,7 @@ public class BackupRecordsView extends JPanel implements ThemeAware {
     private final Callbacks callbacks;
     private final TLabel summary = new TLabel("", TLabel.Role.MUTED);
     private final TLabel filterHint = new TLabel("", TLabel.Role.MUTED);
+    private final TLabel notice = new TLabel("", TLabel.Role.MUTED);
     private final FlatButton showAllButton = new FlatButton("显示全部", FlatButton.Variant.GHOST);
     private final JPanel listPanel = new JPanel();
     private final Card listCard = new Card(new BorderLayout(0, 10));
@@ -90,7 +91,29 @@ public class BackupRecordsView extends JPanel implements ThemeAware {
             renderRecords();
         });
         showAllButton.setVisible(false);
-        return card;
+        JPanel wrapper = new JPanel();
+        wrapper.setOpaque(false);
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        card.setAlignmentX(LEFT_ALIGNMENT);
+        wrapper.add(card);
+        wrapper.add(Box.createVerticalStrut(6));
+        notice.setAlignmentX(LEFT_ALIGNMENT);
+        notice.setVisible(false);
+        wrapper.add(notice);
+        JPanel outer = new JPanel(new BorderLayout());
+        outer.setOpaque(false);
+        outer.add(wrapper, BorderLayout.CENTER);
+        return outer;
+    }
+
+    /** 顶部提示(例如自动备份失败);warning 时用警示色。 */
+    public void setNotice(String text, boolean warning) {
+        boolean visible = text != null && !text.isBlank();
+        notice.setText(visible ? text : "");
+        notice.setForeground(warning ? ThemeManager.palette().danger() : ThemeManager.palette().textMuted());
+        notice.setVisible(visible);
+        revalidate();
+        repaint();
     }
 
     private JPanel buildListHeader() {
@@ -206,6 +229,11 @@ public class BackupRecordsView extends JPanel implements ThemeAware {
                 right.add(incomplete);
             } else if (record.hasHash()) {
                 right.add(new Pill("已记录哈希", palette.accent()));
+            }
+            if (record.sourceRunning()) {
+                Pill running = new Pill("备份时游戏在运行", palette.warning());
+                running.setToolTipText("备份时该世界正被 Minecraft 使用,个别文件可能未能复制");
+                right.add(running);
             }
 
             FlatButton verify = new FlatButton("校验", FlatButton.Variant.GHOST);

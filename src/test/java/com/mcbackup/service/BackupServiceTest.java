@@ -213,4 +213,41 @@ class BackupServiceTest {
         assertTrue(stages.contains("提交"));
         assertTrue(stages.contains("清理"));
     }
+
+    @Test
+    void requiresEnoughDiskSpaceBeforeStarting() {
+        assertEquals(0L, BackupService.requiredSpaceBytes(0));
+        long small = 100L * 1024 * 1024;
+        assertEquals((long) (small * 2.1), BackupService.requiredSpaceBytes(small));
+
+        // 空间充足:不抛异常
+        BackupService.ensureEnoughSpace(10L * 1024 * 1024 * 1024, small, "D:\\MCBackups");
+
+        // 空间不足:给出带具体数字的提示
+        BackupException error = assertThrows(BackupException.class,
+                () -> BackupService.ensureEnoughSpace(small, small, "D:\\MCBackups"));
+        assertTrue(error.getMessage().contains("剩余空间不足"), error.getMessage());
+        assertTrue(error.getMessage().contains("D:\\MCBackups"), error.getMessage());
+    }
+
+    @Test
+    void recordsThatWorldWasRunningDuringBackup() throws IOException {
+        BackupService service = newService();
+        MinecraftWorld world = world("正在玩的世界", "正在玩的世界");
+        // 模拟 Minecraft 正在使用这个世界
+        MinecraftWorld running = new MinecraftWorld(world.folderName(), world.worldDir(), world.savesDir(),
+                world.kind(), world.sourceLabel(), world.groupName(), world.sizeBytes(), world.lastModified(),
+                world.changeStamp(), world.info(), com.mcbackup.util.FileUtils.LockProbe.LOCKED, null);
+
+        BackupResult result = service.backup(running, BackupOptions.of(backupDir, 20), ProgressListener.NOOP);
+
+        assertTrue(result.record().sourceRunning(), "备份时世界在运行,应记录下来");
+        String json = Files.readString(result.record().manifestPath(), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"sourceRunning\": true"), json);
+
+        // 重新读取清单时也要保留这个标记
+        List<BackupRecord> records = service.repository().listAll();
+        assertEquals(1, records.size());
+        assertTrue(records.get(0).sourceRunning());
+    }
 }
