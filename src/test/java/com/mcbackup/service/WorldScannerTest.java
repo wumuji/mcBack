@@ -33,7 +33,7 @@ class WorldScannerTest {
         WorldFixtures.vanillaWorld(officialSaves, "新的世界", "生存世界");
         WorldFixtures.moddedWorld(officialSaves, "爽包世界", "模组世界");
 
-        Path isolatedSaves = tempDir.resolve("isolated").resolve("saves");
+        Path isolatedSaves = tempDir.resolve("versions").resolve("1.21.1").resolve("saves");
         Files.createDirectories(isolatedSaves);
         WorldFixtures.vanillaWorld(isolatedSaves, "1145", "1145");
         // 名字像世界但缺少结构 -> 只记录问题,不算世界
@@ -42,9 +42,10 @@ class WorldScannerTest {
 
         List<ScanProgress> progress = new ArrayList<>();
         WorldScanner scanner = new WorldScanner(() -> List.of(
-                new WorldRoot(officialSaves.getParent(), officialSaves, LocationKind.OFFICIAL_DEFAULT, "官方启动器"),
+                new WorldRoot(officialSaves.getParent(), officialSaves, LocationKind.OFFICIAL_DEFAULT,
+                        "官方启动器", "官方 .minecraft"),
                 new WorldRoot(isolatedSaves.getParent(), isolatedSaves, LocationKind.VERSION_ISOLATED,
-                        "官方启动器 · 版本隔离 · 1.21.1")));
+                        "官方启动器 · 版本隔离 · 1.21.1", "1.21.1")));
 
         ScanResult result = scanner.scan(List.of(), progress::add);
 
@@ -58,6 +59,7 @@ class WorldScannerTest {
         assertTrue(survival.info().available());
         assertTrue(survival.sizeBytes() > 0);
         assertEquals("官方启动器", survival.sourceLabel());
+        assertEquals("官方 .minecraft", survival.groupName(), "分组名应原样传递到世界对象");
 
         MinecraftWorld modded = findWorld(result, "爽包世界");
         assertEquals(LocationKind.OFFICIAL_DEFAULT, modded.kind());
@@ -65,6 +67,9 @@ class WorldScannerTest {
         MinecraftWorld isolated = findWorld(result, "1145");
         assertEquals(LocationKind.VERSION_ISOLATED, isolated.kind());
         assertTrue(isolated.sourceLabel().contains("版本隔离"));
+        assertEquals("1.21.1", isolated.groupName(), "分组名应来自版本隔离目录名");
+
+        assertEquals("1.21.1", isolated.groupName());
 
         assertEquals(2, (int) result.worldCountByRoot().get(officialSaves.toString()));
         assertEquals(1, (int) result.worldCountByRoot().get(isolatedSaves.toString()));

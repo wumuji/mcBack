@@ -108,12 +108,14 @@ public final class LauncherDetector implements WorldRootProvider {
         Map<String, WorldRoot> roots = new LinkedHashMap<>();
 
         // 1) 官方启动器默认目录
-        addGameDir(roots, env.roamingAppData().resolve(".minecraft"), LocationKind.OFFICIAL_DEFAULT, "官方启动器");
+        addGameDir(roots, env.roamingAppData().resolve(".minecraft"), LocationKind.OFFICIAL_DEFAULT,
+                "官方启动器", "官方 .minecraft");
 
         // 2) 各盘符根下的 .minecraft(玩家自定义安装位置)
         for (Path driveRoot : env.driveRoots()) {
-            addGameDir(roots, driveRoot.resolve(".minecraft"), LocationKind.OFFICIAL_DEFAULT,
-                    "官方启动器(盘符根)");
+            Path gameDir = driveRoot.resolve(".minecraft");
+            addGameDir(roots, gameDir, LocationKind.OFFICIAL_DEFAULT,
+                    "官方启动器(盘符根)", PathUtils.toDisplayPath(gameDir));
         }
 
         // 3) 各启动器的实例目录
@@ -127,8 +129,9 @@ public final class LauncherDetector implements WorldRootProvider {
                 LocationKind.CURSEFORGE, "CurseForge");
         // HMCL / LabyMod 的默认游戏目录就是 %APPDATA%\.minecraft,上面已覆盖;
         // 这里再检查它们可能使用的独立目录。
-        addGameDir(roots, roaming.resolve(".hmcl").resolve(".minecraft"), LocationKind.HMCL, "HMCL");
-        addGameDir(roots, roaming.resolve("LabyMod").resolve("minecraft"), LocationKind.LABYMOD, "LabyMod");
+        addGameDir(roots, roaming.resolve(".hmcl").resolve(".minecraft"), LocationKind.HMCL, "HMCL", "HMCL");
+        addGameDir(roots, roaming.resolve("LabyMod").resolve("minecraft"), LocationKind.LABYMOD, "LabyMod",
+                "LabyMod");
 
         // 4) 启动器配置里的自定义路径(兜底)
         for (Path config : env.configFiles()) {
@@ -151,13 +154,14 @@ public final class LauncherDetector implements WorldRootProvider {
     // ------------------------------------------------------------------
 
     /** 添加一个游戏目录(取其中的 saves 与版本隔离目录)。 */
-    private void addGameDir(Map<String, WorldRoot> roots, Path gameDir, LocationKind kind, String label) {
+    private void addGameDir(Map<String, WorldRoot> roots, Path gameDir, LocationKind kind, String label,
+                            String groupName) {
         if (!PathUtils.isDirectory(gameDir)) {
             return;
         }
         Path saves = gameDir.resolve("saves");
         if (PathUtils.isDirectory(saves)) {
-            put(roots, new WorldRoot(gameDir, saves, kind, label));
+            put(roots, new WorldRoot(gameDir, saves, kind, label, groupName));
         }
         Path versions = gameDir.resolve("versions");
         if (!PathUtils.isDirectory(versions)) {
@@ -172,7 +176,7 @@ public final class LauncherDetector implements WorldRootProvider {
                 if (PathUtils.isDirectory(versionSaves)) {
                     String name = version.getFileName().toString();
                     put(roots, new WorldRoot(version, versionSaves, LocationKind.VERSION_ISOLATED,
-                            label + " · 版本隔离 · " + name));
+                            label + " · 版本隔离 · " + name, name));
                 }
             }
         } catch (IOException e) {
@@ -193,9 +197,9 @@ public final class LauncherDetector implements WorldRootProvider {
                 String name = instance.getFileName().toString();
                 String instanceLabel = label + " · " + name;
                 // 不同启动器的实例结构不一样,逐个尝试常见布局
-                boolean added = tryAddInstance(roots, instance.resolve(".minecraft"), kind, instanceLabel);
-                added |= tryAddInstance(roots, instance.resolve("minecraft"), kind, instanceLabel);
-                added |= tryAddInstance(roots, instance, kind, instanceLabel);
+                boolean added = tryAddInstance(roots, instance.resolve(".minecraft"), kind, instanceLabel, name);
+                added |= tryAddInstance(roots, instance.resolve("minecraft"), kind, instanceLabel, name);
+                added |= tryAddInstance(roots, instance, kind, instanceLabel, name);
                 if (!added) {
                     Log.debug("实例目录中没有找到 saves: " + instance);
                 }
@@ -205,12 +209,13 @@ public final class LauncherDetector implements WorldRootProvider {
         }
     }
 
-    private boolean tryAddInstance(Map<String, WorldRoot> roots, Path gameDir, LocationKind kind, String label) {
+    private boolean tryAddInstance(Map<String, WorldRoot> roots, Path gameDir, LocationKind kind, String label,
+                                   String groupName) {
         Path saves = gameDir.resolve("saves");
         if (!PathUtils.isDirectory(saves)) {
             return false;
         }
-        put(roots, new WorldRoot(gameDir, saves, kind, label));
+        put(roots, new WorldRoot(gameDir, saves, kind, label, groupName));
         return true;
     }
 
@@ -274,14 +279,20 @@ public final class LauncherDetector implements WorldRootProvider {
         String name = path.getFileName() == null ? "" : path.getFileName().toString();
         if (name.equalsIgnoreCase("saves")) {
             Path gameDir = path.getParent() == null ? path : path.getParent();
-            put(roots, new WorldRoot(gameDir, path, LocationKind.LAUNCHER_CONFIG, label));
+            put(roots, new WorldRoot(gameDir, path, LocationKind.LAUNCHER_CONFIG, label,
+                    groupNameOf(gameDir)));
             return true;
         }
         if (PathUtils.isDirectory(path.resolve("saves"))) {
-            addGameDir(roots, path, LocationKind.LAUNCHER_CONFIG, label);
+            addGameDir(roots, path, LocationKind.LAUNCHER_CONFIG, label, groupNameOf(path));
             return true;
         }
         return false;
+    }
+
+    private static String groupNameOf(Path gameDir) {
+        Path name = gameDir == null ? null : gameDir.getFileName();
+        return name == null ? "其它" : name.toString();
     }
 
     /** 先按 UTF-8 解码,出现替换字符时改用 GBK(PCL.ini 常见编码)。 */

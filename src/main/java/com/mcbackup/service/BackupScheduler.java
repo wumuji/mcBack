@@ -80,6 +80,8 @@ public final class BackupScheduler {
     private ScheduledExecutorService executor;
     private ScheduledFuture<?> future;
     private int intervalMinutes;
+    /** 下一次计划执行时间(毫秒);0 表示当前没有计划。 */
+    private volatile long nextRunAtMillis;
 
     public BackupScheduler(Supplier<List<MinecraftWorld>> worldsSupplier,
                            BackupService service,
@@ -112,6 +114,7 @@ public final class BackupScheduler {
             future.cancel(false);
         }
         future = executor.scheduleWithFixedDelay(this::tick, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
+        nextRunAtMillis = System.currentTimeMillis() + intervalMinutes * 60_000L;
         Log.info("自动备份已启动,间隔 %d 分钟", intervalMinutes);
     }
 
@@ -120,6 +123,7 @@ public final class BackupScheduler {
         if (future != null) {
             future.cancel(false);
             future = null;
+            nextRunAtMillis = 0L;
             Log.info("自动备份已停止");
         }
     }
@@ -139,6 +143,37 @@ public final class BackupScheduler {
 
     public synchronized int intervalMinutes() {
         return intervalMinutes;
+    }
+
+    /** 下一次自动备份的时间(毫秒);未运行时返回 0。界面用它做倒计时。 */
+    public long nextRunAtMillis() {
+        return isRunning() ? nextRunAtMillis : 0L;
+    }
+
+    /** 距离下一次自动备份还有多少秒;未运行时返回 -1。 */
+    public long secondsUntilNextRun() {
+        long next = nextRunAtMillis();
+        if (next <= 0) {
+            return -1L;
+        }
+        return Math.max(0L, (next - System.currentTimeMillis()) / 1000L);
+    }
+
+    /** 把倒计时文案格式化:1 小时 5 分 / 12 分 30 秒 / 45 秒。 */
+    public static String formatCountdown(long seconds) {
+        if (seconds < 0) {
+            return "未启动";
+        }
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        long secs = seconds % 60;
+        if (hours > 0) {
+            return hours + " 小时 " + minutes + " 分";
+        }
+        if (minutes > 0) {
+            return minutes + " 分 " + secs + " 秒";
+        }
+        return secs + " 秒";
     }
 
     /**
@@ -180,6 +215,10 @@ public final class BackupScheduler {
         } finally {
             long elapsed = System.currentTimeMillis() - started;
             tickRunning.set(false);
+            // 固定延迟语义:下一次执行时间 = 本次结束 + 间隔
+            if (isRunning()) {
+                nextRunAtMillis = System.currentTimeMillis() + intervalMinutes * 60_000L;
+            }
             listener.onTickFinished(backedUp, skipped, elapsed);
         }
     }

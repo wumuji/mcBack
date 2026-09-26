@@ -12,10 +12,12 @@ import java.nio.file.Path;
 public final class AppSettings {
 
     /** 配置结构版本,方便以后迁移。 */
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     private Theme theme = Theme.FOLLOW_SYSTEM;
     private final List<String> manualWorldDirs = new ArrayList<>();
+    /** 纳入自动备份的世界目录(绝对路径,小写)。空 = 一个都没选。 */
+    private final List<String> autoBackupTargets = new ArrayList<>();
     private String backupDir = defaultBackupDir();
     private int windowWidth = 1080;
     private int windowHeight = 720;
@@ -59,6 +61,40 @@ public final class AppSettings {
 
     public List<String> getManualWorldDirs() {
         return manualWorldDirs;
+    }
+
+    // ------------------------------------------------------------------
+    // 自动备份对象
+    // ------------------------------------------------------------------
+
+    public List<String> getAutoBackupTargets() {
+        return autoBackupTargets;
+    }
+
+    public void setAutoBackupTargets(java.util.Collection<String> targets) {
+        autoBackupTargets.clear();
+        autoBackupTargets.addAll(com.mcbackup.service.BackupTargets.normalize(targets));
+    }
+
+    public boolean isAutoBackupTarget(String key) {
+        return autoBackupTargets.contains(key.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /** 勾选/取消勾选一个世界;返回是否发生了变化。 */
+    public boolean setAutoBackupTarget(String key, boolean selected) {
+        String normalized = key.toLowerCase(java.util.Locale.ROOT);
+        if (selected) {
+            if (autoBackupTargets.contains(normalized)) {
+                return false;
+            }
+            autoBackupTargets.add(normalized);
+            return true;
+        }
+        return autoBackupTargets.remove(normalized);
+    }
+
+    public boolean hasAutoBackupTargets() {
+        return !autoBackupTargets.isEmpty();
     }
 
     public int getWindowWidth() {

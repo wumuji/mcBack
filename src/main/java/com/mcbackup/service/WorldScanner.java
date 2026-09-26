@@ -120,13 +120,13 @@ public final class WorldScanner {
     private static WorldRoot manualRoot(Path manual) {
         Path parent = manual.getParent() == null ? manual : manual.getParent();
         if (WorldDetector.isWorld(manual)) {
-            return new WorldRoot(parent, manual, LocationKind.MANUAL, "手动添加");
+            return new WorldRoot(parent, manual, LocationKind.MANUAL, "手动添加", "手动添加");
         }
         Path saves = manual.resolve("saves");
         if (PathUtils.isDirectory(saves)) {
-            return new WorldRoot(manual, saves, LocationKind.MANUAL, "手动添加");
+            return new WorldRoot(manual, saves, LocationKind.MANUAL, "手动添加", "手动添加");
         }
-        return new WorldRoot(parent, manual, LocationKind.MANUAL, "手动添加");
+        return new WorldRoot(parent, manual, LocationKind.MANUAL, "手动添加", "手动添加");
     }
 
     /** 扫描单个存档根目录下的所有世界。 */
@@ -185,6 +185,7 @@ public final class WorldScanner {
         long lastModified = Math.max(stamp, FileUtils.lastModifiedMillis(worldDir));
         String folderName = worldDir.getFileName() == null ? "" : worldDir.getFileName().toString();
         return new MinecraftWorld(folderName, worldDir, root.savesDir(), root.kind(), root.label(),
+                root.groupName(),
                 size, lastModified, stamp, info, lockProbe, null);
     }
 

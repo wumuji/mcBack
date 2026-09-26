@@ -35,6 +35,7 @@ class SettingsRepositoryTest {
         settings.setWindowX(120);
         settings.setWindowY(64);
         settings.setFastBackup(false);
+        settings.setAutoBackupTargets(List.of("E:\\minecraft\\saves\\我的世界", "D:\\MC\\saves\\新的世界"));
 
         Path saved = repository.save(settings);
         assertNotNull(saved);
@@ -48,6 +49,8 @@ class SettingsRepositoryTest {
         assertEquals(120, loaded.getWindowX());
         assertEquals(64, loaded.getWindowY());
         assertFalse(loaded.isFastBackup(), "压缩方式应被持久化");
+        assertEquals(2, loaded.getAutoBackupTargets().size(), "勾选的自动备份对象应被持久化");
+        assertTrue(loaded.getAutoBackupTargets().get(0).contains("我的世界"));
     }
 
     @Test
@@ -61,6 +64,7 @@ class SettingsRepositoryTest {
         assertEquals(1080, settings.getWindowWidth());
         assertEquals(720, settings.getWindowHeight());
         assertTrue(settings.isFastBackup(), "默认应为快速备份");
+        assertFalse(settings.hasAutoBackupTargets(), "默认不勾选任何存档");
     }
 
     @Test

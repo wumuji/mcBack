@@ -52,8 +52,13 @@ public final class AccessibilityGuard {
             return false;
         }
         System.setProperty(AT_PROPERTY, "");
-        Log.warn("当前运行时缺少辅助功能模块 %s,已为本次启动临时关闭 assistive_technologies"
-                + "(不影响系统设置,也不会影响其它程序)", missing);
+        String hint = missing.stream().anyMatch(name -> name.endsWith("AccessBridge"))
+                // AccessBridge 在 JDK 9 之后就被移除,现在由 AccessibilityProvider 承担;
+                // 但旧版 Java 安装留下的配置文件仍会让 AWT 去加载这个不存在的类
+                ? ";该配置来自旧版 Java(AccessBridge 已被 AccessibilityProvider 取代)"
+                : "";
+        Log.warn("当前 Java 里不存在辅助功能类 %s%s。已为本次启动临时关闭 assistive_technologies,"
+                + "程序可以正常启动,系统设置与其它程序不受影响", missing, hint);
         return true;
     }
 

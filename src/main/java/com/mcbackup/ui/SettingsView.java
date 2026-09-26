@@ -18,7 +18,6 @@ import com.mcbackup.util.PathUtils;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -31,10 +30,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 「设置」页面。
+ * 「设置」页面:只保留与备份无关的全局设置(外观、存档目录、日志、关于)。
  *
- * <p>第一阶段只提供真正生效的设置项:主题、存档目录管理、日志目录、关于信息。
- * 备份间隔、保留数量、托盘等留到后续阶段,避免出现点了没反应的开关。</p>
+ * <p>备份相关的设置(位置/间隔/保留/压缩/校验/托盘)统一收在「备份」页的「备份设置…」里。</p>
  */
 public class SettingsView extends JPanel implements ThemeAware {
 
@@ -48,20 +46,6 @@ public class SettingsView extends JPanel implements ThemeAware {
         void onRemoveDirectory(String path);
 
         void onRescan();
-
-        void onBackupDirChanged(String path);
-
-        void onAutoBackupChanged(boolean enabled);
-
-        void onBackupIntervalChanged(int minutes);
-
-        void onRetainCountChanged(int count);
-
-        void onCompressionChanged(boolean fast);
-
-        void onFullVerifyChanged(boolean enabled);
-
-        void onMinimizeToTrayChanged(boolean enabled);
     }
 
     private final AppSettings settings;
@@ -72,19 +56,7 @@ public class SettingsView extends JPanel implements ThemeAware {
     private final JPanel rootList = new JPanel();
     private final JPanel issueBox = new JPanel();
     private final TLabel rootSummary = new TLabel("", TLabel.Role.MUTED);
-    private final TLabel backupDirLabel = new TLabel("", TLabel.Role.BODY);
-    private final TLabel autoBackupLabel = new TLabel("", TLabel.Role.BODY);
-    private final FlatButton autoBackupButton = new FlatButton("开启自动备份");
-    private final JComboBox<Integer> intervalCombo = new JComboBox<>(new Integer[]{5, 10, 15, 30, 60, 120});
-    private final JComboBox<String> retainCombo = new JComboBox<>(
-            new String[]{"5 份", "10 份", "20 份", "50 份", "100 份", "不限制"});
-    private final JComboBox<String> compressionCombo = new JComboBox<>(
-            new String[]{"快速(区域文件不重复压缩)", "体积优先(全部压缩)"});
-    private final FlatButton fullVerifyButton = new FlatButton("关闭");
-    private final FlatButton trayButton = new FlatButton("关闭");
     private ScanResult lastResult = ScanResult.empty();
-    /** 程序化更新控件时抑制回调,避免出现循环触发。 */
-    private boolean updating;
 
     public SettingsView(AppSettings settings, Callbacks callbacks, Path logsDir) {
         this.settings = settings;
@@ -97,13 +69,11 @@ public class SettingsView extends JPanel implements ThemeAware {
         content.setOpaque(false);
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.add(appearanceCard());
-        content.add(Box.createVerticalStrut(16));
-        content.add(backupCard());
-        content.add(Box.createVerticalStrut(16));
+        content.add(Box.createVerticalStrut(14));
         content.add(directoryCard());
-        content.add(Box.createVerticalStrut(16));
+        content.add(Box.createVerticalStrut(14));
         content.add(logCard());
-        content.add(Box.createVerticalStrut(16));
+        content.add(Box.createVerticalStrut(14));
         content.add(aboutCard());
         content.add(Box.createVerticalGlue());
 
@@ -114,224 +84,21 @@ public class SettingsView extends JPanel implements ThemeAware {
         JScrollPane scroll = new JScrollPane(wrapper);
         ScrollPaneStyler.apply(scroll);
         add(scroll, BorderLayout.CENTER);
-
         refreshThemeButtons();
-        refreshBackupControls();
     }
-
-    // ------------------------------------------------------------------
-    // 备份
-    // ------------------------------------------------------------------
-
-    private JComponent backupCard() {
-        Card card = new Card(new BorderLayout(0, 14));
-        card.add(sectionTitle("备份"), BorderLayout.NORTH);
-
-        JPanel column = new JPanel();
-        column.setOpaque(false);
-        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
-
-        // 备份位置
-        JPanel dirRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        dirRow.setOpaque(false);
-        dirRow.setAlignmentX(LEFT_ALIGNMENT);
-        backupDirLabel.setPreferredSize(new Dimension(520, 20));
-        FlatButton changeDir = new FlatButton("更改目录");
-        changeDir.addActionListener(e -> chooseBackupDir());
-        dirRow.add(new TLabel("位置:", TLabel.Role.MUTED));
-        dirRow.add(backupDirLabel);
-        dirRow.add(changeDir);
-        column.add(dirRow);
-        column.add(Box.createVerticalStrut(12));
-
-        // 自动备份
-        JPanel autoRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        autoRow.setOpaque(false);
-        autoRow.setAlignmentX(LEFT_ALIGNMENT);
-        autoBackupButton.addActionListener(e -> {
-            boolean enabled = !settings.isAutoBackupEnabled();
-            settings.setAutoBackupEnabled(enabled);
-            refreshBackupControls();
-            callbacks.onAutoBackupChanged(enabled);
-        });
-        autoRow.add(new TLabel("自动备份:", TLabel.Role.MUTED));
-        autoRow.add(autoBackupLabel);
-        autoRow.add(autoBackupButton);
-        column.add(autoRow);
-        column.add(Box.createVerticalStrut(12));
-
-        // 间隔与保留
-        JPanel comboRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        comboRow.setOpaque(false);
-        comboRow.setAlignmentX(LEFT_ALIGNMENT);
-        intervalCombo.addActionListener(e -> {
-            if (updating || intervalCombo.getSelectedItem() == null) {
-                return;
-            }
-            int minutes = (Integer) intervalCombo.getSelectedItem();
-            settings.setAutoBackupIntervalMinutes(minutes);
-            callbacks.onBackupIntervalChanged(minutes);
-        });
-        retainCombo.addActionListener(e -> {
-            if (updating || retainCombo.getSelectedIndex() < 0) {
-                return;
-            }
-            int count = retainCountAt(retainCombo.getSelectedIndex());
-            settings.setRetainCount(count);
-            callbacks.onRetainCountChanged(count);
-        });
-        compressionCombo.addActionListener(e -> {
-            if (updating || compressionCombo.getSelectedIndex() < 0) {
-                return;
-            }
-            boolean fast = compressionCombo.getSelectedIndex() == 0;
-            settings.setFastBackup(fast);
-            callbacks.onCompressionChanged(fast);
-        });
-        comboRow.add(new TLabel("间隔:", TLabel.Role.MUTED));
-        comboRow.add(intervalCombo);
-        comboRow.add(Box.createHorizontalStrut(16));
-        comboRow.add(new TLabel("保留:", TLabel.Role.MUTED));
-        comboRow.add(retainCombo);
-        column.add(comboRow);
-        column.add(Box.createVerticalStrut(8));
-
-        JPanel compressionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        compressionRow.setOpaque(false);
-        compressionRow.setAlignmentX(LEFT_ALIGNMENT);
-        compressionRow.add(new TLabel("压缩:", TLabel.Role.MUTED));
-        compressionRow.add(compressionCombo);
-        compressionCombo.setToolTipText("<html>快速:大区域文件不重复压缩,备份快约 8 倍,CPU 占用低,体积可能大一些<br>"
-                + "体积优先:全部重新压缩,备份更小,但耗时明显更长</html>");
-        column.add(compressionRow);
-        column.add(Box.createVerticalStrut(8));
-
-        TLabel hint = new TLabel("自动备份只在世界确实发生变化时才复制文件;世界没变会直接跳过。", TLabel.Role.MUTED);
-        hint.setAlignmentX(LEFT_ALIGNMENT);
-        column.add(hint);
-
-        column.add(Box.createVerticalStrut(12));
-        JPanel switches = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        switches.setOpaque(false);
-        switches.setAlignmentX(LEFT_ALIGNMENT);
-        fullVerifyButton.setToolTipText("开启后,每次备份会额外计算整包 SHA-256(多读一遍磁盘,GB 级世界慢 1~2 秒)");
-        fullVerifyButton.addActionListener(e -> {
-            boolean enabled = !settings.isFullVerify();
-            settings.setFullVerify(enabled);
-            refreshBackupControls();
-            callbacks.onFullVerifyChanged(enabled);
-        });
-        trayButton.setToolTipText("关闭窗口时收进系统托盘继续自动备份;托盘不可用时自动忽略此设置");
-        trayButton.addActionListener(e -> {
-            boolean enabled = !settings.isMinimizeToTray();
-            settings.setMinimizeToTray(enabled);
-            refreshBackupControls();
-            callbacks.onMinimizeToTrayChanged(enabled);
-        });
-        switches.add(new TLabel("完整校验(SHA-256):", TLabel.Role.MUTED));
-        switches.add(fullVerifyButton);
-        switches.add(Box.createHorizontalStrut(12));
-        switches.add(new TLabel("最小化到托盘:", TLabel.Role.MUTED));
-        switches.add(trayButton);
-        column.add(switches);
-
-        card.add(column, BorderLayout.CENTER);
-        return card;
-    }
-
-    /** 用当前配置刷新备份相关控件。 */
-    public final void refreshBackupControls() {
-        updating = true;
-        try {
-            backupDirLabel.setText(PathUtils.toDisplayPath(settings.backupDirPath()));
-            boolean enabled = settings.isAutoBackupEnabled();
-            autoBackupLabel.setText(enabled ? "已开启" : "已关闭");
-            autoBackupButton.setText(enabled ? "关闭自动备份" : "开启自动备份");
-            intervalCombo.setSelectedItem(nearestInterval(settings.getAutoBackupIntervalMinutes()));
-            intervalCombo.setEnabled(enabled);
-            retainCombo.setSelectedIndex(indexForRetainCount(settings.getRetainCount()));
-            compressionCombo.setSelectedIndex(settings.isFastBackup() ? 0 : 1);
-            fullVerifyButton.setText(settings.isFullVerify() ? "已开启" : "关闭");
-            fullVerifyButton.setVariant(settings.isFullVerify()
-                    ? FlatButton.Variant.PRIMARY : FlatButton.Variant.SECONDARY);
-            trayButton.setText(settings.isMinimizeToTray() ? "已开启" : "关闭");
-            trayButton.setVariant(settings.isMinimizeToTray()
-                    ? FlatButton.Variant.PRIMARY : FlatButton.Variant.SECONDARY);
-        } finally {
-            updating = false;
-        }
-        repaint();
-    }
-
-    private static int retainCountAt(int index) {
-        return switch (index) {
-            case 0 -> 5;
-            case 1 -> 10;
-            case 2 -> 20;
-            case 3 -> 50;
-            case 4 -> 100;
-            default -> 0;
-        };
-    }
-
-    private static int indexForRetainCount(int count) {
-        return switch (count) {
-            case 5 -> 0;
-            case 10 -> 1;
-            case 20 -> 2;
-            case 50 -> 3;
-            case 100 -> 4;
-            default -> count <= 0 ? 5 : 2;
-        };
-    }
-
-    private static int nearestInterval(int minutes) {
-        int[] values = {5, 10, 15, 30, 60, 120};
-        int best = values[0];
-        int bestDiff = Integer.MAX_VALUE;
-        for (int value : values) {
-            int diff = Math.abs(value - minutes);
-            if (diff < bestDiff) {
-                bestDiff = diff;
-                best = value;
-            }
-        }
-        return best;
-    }
-
-    private void chooseBackupDir() {
-        javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
-        chooser.setDialogTitle("选择备份目录");
-        chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
-        chooser.setAcceptAllFileFilterUsed(false);
-        if (chooser.showOpenDialog(this) != javax.swing.JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-        java.io.File selected = chooser.getSelectedFile();
-        if (selected == null) {
-            return;
-        }
-        String path = selected.getAbsolutePath();
-        settings.setBackupDir(path);
-        refreshBackupControls();
-        callbacks.onBackupDirChanged(path);
-    }
-
-    // ------------------------------------------------------------------
-    // 外观
-    // ------------------------------------------------------------------
 
     private JComponent appearanceCard() {
-        Card card = new Card(new BorderLayout(0, 14));
+        Card card = new Card(new BorderLayout(0, 12));
         card.add(sectionTitle("外观"), BorderLayout.NORTH);
 
         JPanel column = new JPanel();
         column.setOpaque(false);
         column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
-        TLabel hint = new TLabel("「跟随系统」会读取 Windows 的应用模式设置,读取失败时按深色显示。", TLabel.Role.MUTED);
+        TLabel hint = new TLabel("「跟随系统」会读取 Windows 的应用模式设置,读取失败时按深色显示。",
+                TLabel.Role.MUTED);
         hint.setAlignmentX(LEFT_ALIGNMENT);
         column.add(hint);
-        column.add(Box.createVerticalStrut(12));
+        column.add(Box.createVerticalStrut(10));
 
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         row.setOpaque(false);
@@ -357,12 +124,8 @@ public class SettingsView extends JPanel implements ThemeAware {
                 button.setVariant(theme == current ? FlatButton.Variant.PRIMARY : FlatButton.Variant.SECONDARY));
     }
 
-    // ------------------------------------------------------------------
-    // 存档目录
-    // ------------------------------------------------------------------
-
     private JComponent directoryCard() {
-        Card card = new Card(new BorderLayout(0, 14));
+        Card card = new Card(new BorderLayout(0, 12));
 
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
@@ -385,10 +148,10 @@ public class SettingsView extends JPanel implements ThemeAware {
                 TLabel.Role.MUTED);
         hint.setAlignmentX(LEFT_ALIGNMENT);
         column.add(hint);
-        column.add(Box.createVerticalStrut(10));
+        column.add(Box.createVerticalStrut(8));
         rootSummary.setAlignmentX(LEFT_ALIGNMENT);
         column.add(rootSummary);
-        column.add(Box.createVerticalStrut(12));
+        column.add(Box.createVerticalStrut(10));
 
         rootList.setOpaque(false);
         rootList.setLayout(new BoxLayout(rootList, BoxLayout.Y_AXIS));
@@ -469,12 +232,8 @@ public class SettingsView extends JPanel implements ThemeAware {
         return row;
     }
 
-    // ------------------------------------------------------------------
-    // 日志与关于
-    // ------------------------------------------------------------------
-
     private JComponent logCard() {
-        Card card = new Card(new BorderLayout(0, 14));
+        Card card = new Card(new BorderLayout(0, 12));
         card.add(sectionTitle("日志"), BorderLayout.NORTH);
 
         JPanel column = new JPanel();
@@ -486,9 +245,9 @@ public class SettingsView extends JPanel implements ThemeAware {
         TLabel path = new TLabel(PathUtils.toDisplayPath(logsDir), TLabel.Role.BODY);
         path.setAlignmentX(LEFT_ALIGNMENT);
         column.add(hint);
-        column.add(Box.createVerticalStrut(10));
+        column.add(Box.createVerticalStrut(8));
         column.add(path);
-        column.add(Box.createVerticalStrut(12));
+        column.add(Box.createVerticalStrut(10));
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         row.setOpaque(false);
         row.setAlignmentX(LEFT_ALIGNMENT);
@@ -501,7 +260,7 @@ public class SettingsView extends JPanel implements ThemeAware {
     }
 
     private JComponent aboutCard() {
-        Card card = new Card(new BorderLayout(0, 14));
+        Card card = new Card(new BorderLayout(0, 12));
         card.add(sectionTitle("关于"), BorderLayout.NORTH);
 
         JPanel column = new JPanel();
@@ -511,13 +270,15 @@ public class SettingsView extends JPanel implements ThemeAware {
         addInfoRow(column, "运行时", "Java " + System.getProperty("java.version")
                 + "(" + System.getProperty("java.vendor") + ")");
         addInfoRow(column, "系统", System.getProperty("os.name") + " " + System.getProperty("os.arch"));
-        addInfoRow(column, "配置文件", PathUtils.toDisplayPath(settingsPathHint()));
+        addInfoRow(column, "配置文件", PathUtils.toDisplayPath(configPathHint()));
+        addInfoRow(column, "备份设置", "在「备份」页的「备份设置…」里");
         card.add(column, BorderLayout.CENTER);
         return card;
     }
 
-    private Path settingsPathHint() {
-        return logsDir.getParent() == null ? logsDir : logsDir.getParent().resolve("config.json");
+    private Path configPathHint() {
+        Path parent = logsDir.getParent();
+        return parent == null ? logsDir : parent.resolve("config.json");
     }
 
     private void addInfoRow(JPanel column, String label, String value) {
@@ -529,14 +290,14 @@ public class SettingsView extends JPanel implements ThemeAware {
         row.add(labelComponent);
         row.add(new TLabel(value, TLabel.Role.BODY));
         column.add(row);
-        column.add(Box.createVerticalStrut(6));
+        column.add(Box.createVerticalStrut(5));
     }
 
     private JComponent sectionTitle(String text) {
         return new TLabel(text, TLabel.Role.H2);
     }
 
-    /** 便于测试与刷新:最近一次扫描结果。 */
+    /** 便于测试。 */
     ScanResult lastResult() {
         return lastResult;
     }

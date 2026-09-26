@@ -34,11 +34,9 @@ public class Sidebar extends JPanel implements ThemeAware {
 
         add(brand());
         add(Box.createVerticalStrut(26));
-        add(navItem("world", NavItem.Glyph.WORLD, "世界", onNavigate));
-        add(Box.createVerticalStrut(6));
         add(navItem("backup", NavItem.Glyph.BOX, "备份", onNavigate));
         add(Box.createVerticalStrut(6));
-        add(navItem("export", NavItem.Glyph.EXPORT, "导出", onNavigate));
+        add(navItem("records", NavItem.Glyph.LIST, "备份记录", onNavigate));
         add(Box.createVerticalStrut(6));
         add(navItem("settings", NavItem.Glyph.GEAR, "设置", onNavigate));
         add(Box.createVerticalGlue());

@@ -149,4 +149,67 @@ class BackupSchedulerTest {
         assertFalse(fixture.scheduler().isRunning(), "间隔为 0 应视为关闭自动备份");
         fixture.scheduler().shutdown();
     }
+
+    @Test
+    void exposesCountdownToNextRun() throws IOException {
+        Fixture fixture = fixture(true);
+        assertEquals(0L, fixture.scheduler().nextRunAtMillis(), "未启动时没有计划时间");
+        assertEquals(-1L, fixture.scheduler().secondsUntilNextRun());
+
+        fixture.scheduler().start(10);
+        long next = fixture.scheduler().nextRunAtMillis();
+        assertTrue(next > System.currentTimeMillis(), "启动后应给出未来的执行时间");
+        long seconds = fixture.scheduler().secondsUntilNextRun();
+        assertTrue(seconds > 9 * 60 && seconds <= 10 * 60, "倒计时应在 10 分钟以内:" + seconds);
+
+        fixture.scheduler().tick();
+        long afterTick = fixture.scheduler().nextRunAtMillis();
+        assertTrue(afterTick >= next, "每次执行后应重新计时");
+
+        fixture.scheduler().stop();
+        assertEquals(0L, fixture.scheduler().nextRunAtMillis(), "暂停后不应再有计划时间");
+    }
+
+    @Test
+    void formatsCountdownForHumans() {
+        assertEquals("45 秒", BackupScheduler.formatCountdown(45));
+        assertEquals("2 分 5 秒", BackupScheduler.formatCountdown(125));
+        assertEquals("1 小时 5 分", BackupScheduler.formatCountdown(3900));
+        assertEquals("未启动", BackupScheduler.formatCountdown(-1));
+    }
+
+    @Test
+    void onlyBacksUpWorldsProvidedByTheSupplier() throws IOException {
+        // 调度器只认「喂给它的世界」:MainWindow 会把扫描结果按勾选过滤后再传进来
+        Path saves = tempDir.resolve("saves-filter");
+        Files.createDirectories(saves);
+        Path kept = WorldFixtures.vanillaWorld(saves, "要备份的", "要备份的");
+        WorldFixtures.vanillaWorld(saves, "不该备份的", "不该备份的");
+        Path backupDir = tempDir.resolve("backups-filter");
+        BackupRepository repository = new BackupRepository(backupDir);
+        MinecraftWorld only = new MinecraftWorld("要备份的", kept, saves, LocationKind.MANUAL, "测试",
+                0L, 0L, FileUtils.worldChangeStamp(kept),
+                LevelInfoReader.read(kept.resolve("level.dat")), FileUtils.LockProbe.FREE, null);
+        BackupScheduler scheduler = new BackupScheduler(List::of,
+                new BackupService(repository),
+                () -> BackupOptions.of(backupDir, 20),
+                repository,
+                BackupScheduler.Listener.NOOP);
+
+        scheduler.tick();
+
+        assertEquals(0, repository.listAll().size(), "没有喂世界时不应备份任何东西");
+        scheduler.shutdown();
+
+        BackupScheduler withOne = new BackupScheduler(() -> List.of(only),
+                new BackupService(repository),
+                () -> BackupOptions.of(backupDir, 20),
+                repository,
+                BackupScheduler.Listener.NOOP);
+        withOne.tick();
+        withOne.shutdown();
+
+        assertEquals(1, repository.listAll().size());
+        assertEquals("要备份的", repository.listAll().get(0).worldFolderName());
+    }
 }

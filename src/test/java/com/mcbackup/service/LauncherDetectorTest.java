@@ -103,6 +103,11 @@ class LauncherDetectorTest {
         assertEquals(LocationKind.PRISM, kindOf(roots, prismSaves));
         assertEquals(LocationKind.LAUNCHER_CONFIG, kindOf(roots, customSaves));
 
+        // 分组名:版本隔离目录用版本名,实例用实例名,官方默认归到一个固定分组
+        assertEquals("1.21.1", groupOf(roots, isolatedSaves));
+        assertEquals("inst1", groupOf(roots, prismSaves));
+        assertEquals("官方 .minecraft", groupOf(roots, officialSaves));
+
         // 同一 saves 目录不允许重复出现
         assertEquals(roots.size(), roots.stream().map(WorldRoot::dedupeKey).distinct().count());
     }
@@ -150,6 +155,15 @@ class LauncherDetectorTest {
                 .filter(root -> root.savesDir().toAbsolutePath().normalize().toString().equals(expected))
                 .findFirst()
                 .map(WorldRoot::label)
+                .orElseThrow();
+    }
+
+    private static String groupOf(List<WorldRoot> roots, Path savesDir) {
+        String expected = savesDir.toAbsolutePath().normalize().toString();
+        return roots.stream()
+                .filter(root -> root.savesDir().toAbsolutePath().normalize().toString().equals(expected))
+                .findFirst()
+                .map(WorldRoot::groupName)
                 .orElseThrow();
     }
 }

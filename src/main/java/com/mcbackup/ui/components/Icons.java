@@ -157,4 +157,18 @@ public final class Icons {
         g.draw(path);
         g.dispose();
     }
+
+    /** 列表/记录:三条横线。 */
+    public static void list(Graphics2D graphics, int x, int y, int size, Color color) {
+        Graphics2D g = prepare((Graphics2D) graphics.create());
+        g.setColor(color);
+        float stroke = Math.max(1.4f, size / 12f);
+        g.setStroke(new java.awt.BasicStroke(stroke, java.awt.BasicStroke.CAP_ROUND,
+                java.awt.BasicStroke.JOIN_ROUND));
+        for (int i = 0; i < 3; i++) {
+            double lineY = y + size * (0.28 + 0.22 * i);
+            g.draw(new java.awt.geom.Line2D.Double(x + size * 0.16, lineY, x + size * 0.86, lineY));
+        }
+        g.dispose();
+    }
 }

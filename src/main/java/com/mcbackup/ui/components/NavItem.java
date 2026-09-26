@@ -25,7 +25,7 @@ public class NavItem extends JComponent implements ThemeAware {
 
     /** 图标种类(矢量绘制,见 {@link Icons})。 */
     public enum Glyph {
-        WORLD, BOX, EXPORT, GEAR
+        WORLD, BOX, EXPORT, GEAR, LIST
     }
 
     private final Glyph glyph;
@@ -110,6 +110,7 @@ public class NavItem extends JComponent implements ThemeAware {
             case BOX -> Icons.box(g, iconX, iconY, iconSize, iconColor);
             case EXPORT -> Icons.export(g, iconX, iconY, iconSize, iconColor);
             case GEAR -> Icons.gear(g, iconX, iconY, iconSize, iconColor);
+            case LIST -> Icons.list(g, iconX, iconY, iconSize, iconColor);
         }
 
         g.setFont(getFont());

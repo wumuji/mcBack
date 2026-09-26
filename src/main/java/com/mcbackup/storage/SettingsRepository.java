@@ -81,6 +81,7 @@ public final class SettingsRepository {
             for (String dir : Json.optStringList(root, "manualWorldDirs")) {
                 settings.addManualWorldDir(dir);
             }
+            settings.setAutoBackupTargets(Json.optStringList(root, "autoBackupTargets"));
             settings.setWindowWidth(clamp(Json.optInt(root, "windowWidth", 1080), 640, 10000));
             settings.setWindowHeight(clamp(Json.optInt(root, "windowHeight", 720), 480, 10000));
             settings.setWindowX(Json.optInt(root, "windowX", Integer.MIN_VALUE));
@@ -93,6 +94,7 @@ public final class SettingsRepository {
             settings.setMinimizeToTray(Json.optBoolean(root, "minimizeToTray", false));
             Log.info("已加载配置: %s (主题=%s, 手动目录=%d)", file, settings.getTheme(),
                     settings.getManualWorldDirs().size());
+            Log.info("自动备份对象:%d 个存档", settings.getAutoBackupTargets().size());
             return settings;
         } catch (Json.JsonException e) {
             Path backup = backupBrokenConfig(file);
@@ -138,6 +140,7 @@ public final class SettingsRepository {
         root.put("backupDir", settings.getBackupDir());
         List<String> dirs = new ArrayList<>(settings.getManualWorldDirs());
         root.put("manualWorldDirs", dirs);
+        root.put("autoBackupTargets", new ArrayList<>(settings.getAutoBackupTargets()));
         root.put("windowWidth", settings.getWindowWidth());
         root.put("windowHeight", settings.getWindowHeight());
         if (settings.getWindowX() != Integer.MIN_VALUE) {

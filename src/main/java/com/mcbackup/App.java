@@ -121,8 +121,9 @@ public final class App {
                 if (screenshotMode) {
                     window.scanNowBlocking();
                     // 真实做一次最小世界的备份,让「备份」页展示的是真实数据而不是假数据
-                    window.markPreview();
                     window.backupSmallestWorldForPreview();
+                    // 再在内存里临时打开自动备份,这样截图里能看到倒计时(不写配置)
+                    window.previewAutoBackupState();
                     ScreenshotRunner.run(window, options.screenshotDir(), ScreenshotRunner.defaultShots());
                 }
             } catch (Throwable e) {

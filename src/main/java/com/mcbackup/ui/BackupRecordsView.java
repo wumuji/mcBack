@@ -1,7 +1,6 @@
 package com.mcbackup.ui;
 
 import com.mcbackup.model.BackupRecord;
-import com.mcbackup.model.MinecraftWorld;
 import com.mcbackup.ui.components.Card;
 import com.mcbackup.ui.components.EmptyState;
 import com.mcbackup.ui.components.FlatButton;
@@ -31,16 +30,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 「备份」页面:备份列表 + 立即备份 + 每份备份的导出/删除。
+ * 「备份记录」页面:列出所有备份,支持恢复 / 校验 / 导出 / 打开目录 / 删除。
  *
- * <p>界面保持简单:一行动作按钮、一个列表,不做图表和动画。</p>
+ * <p>可以从「备份」页的存档明细跳过来并只显示该存档的记录。</p>
  */
-public class BackupView extends JPanel implements ThemeAware {
+public class BackupRecordsView extends JPanel implements ThemeAware {
 
     /** 页面回调(选文件的操作留在界面里,后台任务交给 MainWindow)。 */
     public interface Callbacks {
-
-        void onBackupNow();
 
         void onOpenBackupDir();
 
@@ -54,33 +51,27 @@ public class BackupView extends JPanel implements ThemeAware {
     }
 
     private final Callbacks callbacks;
-    private final FlatButton backupButton = new FlatButton("立即备份", FlatButton.Variant.PRIMARY);
-    private final TLabel autoStatus = new TLabel("自动备份:已关闭", TLabel.Role.MUTED);
     private final TLabel summary = new TLabel("", TLabel.Role.MUTED);
+    private final TLabel filterHint = new TLabel("", TLabel.Role.MUTED);
+    private final FlatButton showAllButton = new FlatButton("显示全部", FlatButton.Variant.GHOST);
     private final JPanel listPanel = new JPanel();
     private final Card listCard = new Card(new BorderLayout(0, 10));
     private final EmptyState emptyState = new EmptyState();
     private final JScrollPane listScroll;
 
-    private MinecraftWorld selectedWorld;
     private List<BackupRecord> records = List.of();
+    private String filterFolder;
 
-    public BackupView(Callbacks callbacks) {
+    public BackupRecordsView(Callbacks callbacks) {
         this.callbacks = callbacks;
         setOpaque(false);
         setLayout(new BorderLayout(0, 14));
-
         add(buildToolbar(), BorderLayout.NORTH);
-
         listCard.add(buildListHeader(), BorderLayout.NORTH);
         listPanel.setOpaque(false);
         listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
         listScroll = new JScrollPane(listPanel);
         ScrollPaneStyler.apply(listScroll);
-        listCard.add(listScroll, BorderLayout.CENTER);
-        add(listCard, BorderLayout.CENTER);
-
-        updateBackupButton();
         renderRecords();
     }
 
@@ -88,78 +79,58 @@ public class BackupView extends JPanel implements ThemeAware {
         Card card = new Card(new BorderLayout());
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         left.setOpaque(false);
-
-        backupButton.setToolTipText("选择世界后即可备份");
-        backupButton.addActionListener(e -> {
-            if (selectedWorld != null) {
-                callbacks.onBackupNow();
-            }
-        });
         FlatButton openDir = new FlatButton("打开备份目录");
         openDir.addActionListener(e -> callbacks.onOpenBackupDir());
-        left.add(backupButton);
         left.add(openDir);
+        left.add(filterHint);
+        left.add(showAllButton);
         card.add(left, BorderLayout.WEST);
-
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        right.setOpaque(false);
-        right.add(autoStatus);
-        card.add(right, BorderLayout.EAST);
+        showAllButton.addActionListener(e -> {
+            filterFolder = null;
+            renderRecords();
+        });
+        showAllButton.setVisible(false);
         return card;
     }
 
     private JPanel buildListHeader() {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
-        header.add(new TLabel("备份列表", TLabel.Role.H2), BorderLayout.WEST);
+        header.add(new TLabel("备份记录", TLabel.Role.H2), BorderLayout.WEST);
         header.add(summary, BorderLayout.EAST);
         return header;
     }
 
-    /** 更新当前选中的世界(决定「立即备份」是否可用)。 */
-    public void setSelectedWorld(MinecraftWorld world) {
-        this.selectedWorld = world;
-        updateBackupButton();
+    /** 只显示某个存档的备份;传 null 显示全部。 */
+    public void setFilter(String worldFolderName) {
+        this.filterFolder = worldFolderName;
+        renderRecords();
     }
 
-    /** 更新自动备份状态文字。 */
-    public void setAutoBackupStatus(boolean enabled, int intervalMinutes) {
-        autoStatus.setText(enabled ? "自动备份:每 " + intervalMinutes + " 分钟" : "自动备份:已关闭");
-        autoStatus.onThemeChanged();
-        repaint();
-    }
-
-    /** 刷新列表。 */
+    /** 更新备份列表。 */
     public void setBackups(List<BackupRecord> newRecords) {
         this.records = newRecords == null ? List.of() : newRecords;
         renderRecords();
     }
 
-    /** 备份过程中禁用会冲突的按钮。 */
-    public void setBusy(boolean busy) {
-        backupButton.setEnabled(!busy && selectedWorld != null);
-        backupButton.setText(busy ? "备份中…" : "立即备份");
-    }
-
-    private void updateBackupButton() {
-        boolean enabled = selectedWorld != null;
-        backupButton.setEnabled(enabled);
-        backupButton.setText("立即备份");
-        backupButton.setToolTipText(enabled
-                ? "备份 " + selectedWorld.displayName() + "(" + FileUtils.humanSize(selectedWorld.sizeBytes()) + ")"
-                : "先在「世界」页面选择要备份的世界");
-    }
-
     private void renderRecords() {
+        List<BackupRecord> visible = filterFolder == null ? records : records.stream()
+                .filter(record -> filterFolder.equals(record.worldFolderName()))
+                .toList();
         listPanel.removeAll();
-        if (records.isEmpty()) {
-            emptyState.setTitle("还没有备份");
-            emptyState.setSubtitle("在「世界」页面选择世界后点「立即备份」,或到设置里打开自动备份");
+        boolean filtering = filterFolder != null;
+        showAllButton.setVisible(filtering);
+        filterHint.setText(filtering ? "只显示:" + filterFolder : "");
+        if (visible.isEmpty()) {
+            emptyState.setTitle(filtering ? "这个存档还没有备份" : "还没有备份");
+            emptyState.setSubtitle(filtering
+                    ? "回到「备份」页勾选它并开始自动备份,或直接点立刻备份"
+                    : "在「备份」页勾选要自动备份的存档,然后点「开始自动备份」");
             listCard.remove(listScroll);
             listCard.add(emptyState, BorderLayout.CENTER);
         } else {
             listCard.remove(emptyState);
-            for (BackupRecord record : records) {
+            for (BackupRecord record : visible) {
                 listPanel.add(new BackupRow(record).component());
                 listPanel.add(Box.createVerticalStrut(6));
             }
@@ -167,12 +138,12 @@ public class BackupView extends JPanel implements ThemeAware {
                 listCard.add(listScroll, BorderLayout.CENTER);
             }
         }
-        long totalBytes = records.stream().mapToLong(BackupRecord::zipBytes).sum();
-        long managed = records.stream().filter(BackupRecord::managed).count();
-        summary.setText(records.isEmpty()
-                ? ""
-                : records.size() + " 份 · 共 " + FileUtils.humanSize(totalBytes)
-                        + (managed == records.size() ? "" : "(其中 " + (records.size() - managed) + " 份非本程序生成)"));
+        long totalBytes = visible.stream().mapToLong(BackupRecord::zipBytes).sum();
+        long managed = visible.stream().filter(BackupRecord::managed).count();
+        summary.setText(visible.isEmpty() ? ""
+                : visible.size() + " 份 · 共 " + FileUtils.humanSize(totalBytes)
+                        + (managed == visible.size() ? ""
+                                : "(其中 " + (visible.size() - managed) + " 份非本程序生成)"));
         listCard.revalidate();
         listCard.repaint();
         listPanel.revalidate();
@@ -183,6 +154,11 @@ public class BackupView extends JPanel implements ThemeAware {
     public void onThemeChanged() {
         renderRecords();
         repaint();
+    }
+
+    /** 便于测试。 */
+    List<BackupRecord> records() {
+        return new ArrayList<>(records);
     }
 
     /** 单条备份的展示与操作。 */
@@ -205,10 +181,10 @@ public class BackupView extends JPanel implements ThemeAware {
             texts.setLayout(new BoxLayout(texts, BoxLayout.Y_AXIS));
             String title = record.worldDisplayName().isBlank()
                     ? record.worldFolderName() : record.worldDisplayName();
-            TLabel name = new TLabel(title + "   " + record.createdText(), TLabel.Role.TITLE);
             String meta = record.sizeText() + "  ·  " + record.fileCount() + " 个文件"
                     + (record.durationMillis() > 0 ? "  ·  耗时 " + record.durationText() : "")
                     + (record.worldFolderName().isBlank() ? "" : "  ·  " + record.worldFolderName());
+            TLabel name = new TLabel(title + "   " + record.createdText(), TLabel.Role.TITLE);
             TLabel metaLabel = new TLabel(meta, TLabel.Role.MUTED);
             name.setAlignmentX(LEFT_ALIGNMENT);
             metaLabel.setAlignmentX(LEFT_ALIGNMENT);
@@ -228,10 +204,10 @@ public class BackupView extends JPanel implements ThemeAware {
                 Pill incomplete = new Pill("有文件未复制", palette.warning());
                 incomplete.setToolTipText("备份已完成,但有 " + record.failedFiles() + " 个文件没能复制");
                 right.add(incomplete);
+            } else if (record.hasHash()) {
+                right.add(new Pill("已记录哈希", palette.accent()));
             }
 
-            FlatButton open = new FlatButton("打开目录", FlatButton.Variant.GHOST);
-            open.addActionListener(e -> FileUtils.openInFileBrowser(record.zipPath()));
             FlatButton verify = new FlatButton("校验", FlatButton.Variant.GHOST);
             verify.setToolTipText(record.hasHash()
                     ? "校验 ZIP 结构并核对 SHA-256"
@@ -240,6 +216,8 @@ public class BackupView extends JPanel implements ThemeAware {
             FlatButton restore = new FlatButton("恢复");
             restore.setToolTipText("把这份备份还原成世界;原世界会保留为 .restore-backup-…");
             restore.addActionListener(e -> confirmRestore());
+            FlatButton open = new FlatButton("打开目录", FlatButton.Variant.GHOST);
+            open.addActionListener(e -> FileUtils.openInFileBrowser(record.zipPath()));
             FlatButton export = new FlatButton("导出", FlatButton.Variant.GHOST);
             export.setEnabled(record.zipPath() != null);
             export.addActionListener(e -> chooseExportTarget());
@@ -256,24 +234,24 @@ public class BackupView extends JPanel implements ThemeAware {
             return row;
         }
 
-        /** 把备份里的 ZIP 另存到用户指定位置。 */
         private void chooseExportTarget() {
             if (record.zipPath() == null || !Files.isRegularFile(record.zipPath())) {
-                JOptionPane.showMessageDialog(BackupView.this, "备份文件已不存在:" + record.zipFileName(),
+                JOptionPane.showMessageDialog(BackupRecordsView.this,
+                        "备份文件已不存在:" + record.zipFileName(),
                         "MC Backup", JOptionPane.WARNING_MESSAGE);
                 return;
             }
             JFileChooser chooser = new JFileChooser();
             chooser.setDialogTitle("导出备份到…");
             chooser.setSelectedFile(new java.io.File(record.zipFileName()));
-            if (chooser.showSaveDialog(BackupView.this) != JFileChooser.APPROVE_OPTION) {
+            if (chooser.showSaveDialog(BackupRecordsView.this) != JFileChooser.APPROVE_OPTION) {
                 return;
             }
             Path target = PathUtils.toPath(chooser.getSelectedFile().getAbsolutePath());
             if (target == null) {
                 return;
             }
-            if (Files.exists(target) && JOptionPane.showConfirmDialog(BackupView.this,
+            if (Files.exists(target) && JOptionPane.showConfirmDialog(BackupRecordsView.this,
                     "目标文件已存在,要覆盖吗?\n" + PathUtils.toDisplayPath(target),
                     "MC Backup", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
                 return;
@@ -283,7 +261,7 @@ public class BackupView extends JPanel implements ThemeAware {
         }
 
         private void confirmDelete() {
-            int answer = JOptionPane.showConfirmDialog(BackupView.this,
+            int answer = JOptionPane.showConfirmDialog(BackupRecordsView.this,
                     "删除这份备份?\n" + record.zipFileName() + "\n\n只删除备份文件,不会动原始世界。",
                     "删除备份", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (answer == JOptionPane.YES_OPTION) {
@@ -295,7 +273,7 @@ public class BackupView extends JPanel implements ThemeAware {
             String target = record.worldPath() == null || record.worldPath().isBlank()
                     ? "(这份备份没有记录原世界路径,恢复时会让你选择一个目录)"
                     : PathUtils.toDisplayPath(Path.of(record.worldPath()));
-            int answer = JOptionPane.showConfirmDialog(BackupView.this,
+            int answer = JOptionPane.showConfirmDialog(BackupRecordsView.this,
                     "恢复这份备份?\n\n"
                             + "备份:" + record.zipFileName() + "\n"
                             + "备份时间:" + record.createdText() + "\n"
@@ -307,10 +285,5 @@ public class BackupView extends JPanel implements ThemeAware {
                 callbacks.onRestoreRecord(record);
             }
         }
-    }
-
-    /** 便于测试:当前列表里的记录。 */
-    List<BackupRecord> records() {
-        return new ArrayList<>(records);
     }
 }

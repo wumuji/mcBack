@@ -27,15 +27,14 @@ public final class ScreenshotRunner {
     public record Shot(String fileName, Theme theme, String page, boolean emptyWorlds) {
     }
 
-    /** 默认截图组合:世界页(有数据/空状态 × 深浅色)+ 设置页(深浅色)。 */
+    /** 默认截图组合:备份页(主控台)、备份记录页、设置页,深浅色各来一张。 */
     public static List<Shot> defaultShots() {
         return List.of(
-                new Shot("world-dark", Theme.DARK, "world", false),
-                new Shot("world-light", Theme.LIGHT, "world", false),
-                new Shot("world-empty-dark", Theme.DARK, "world", true),
+                new Shot("backup-dark", Theme.DARK, "backup", false),
+                new Shot("backup-light", Theme.LIGHT, "backup", false),
+                new Shot("records-dark", Theme.DARK, "records", false),
                 new Shot("settings-dark", Theme.DARK, "settings", false),
-                new Shot("settings-light", Theme.LIGHT, "settings", false),
-                new Shot("backup-dark", Theme.DARK, "backup", false));
+                new Shot("settings-light", Theme.LIGHT, "settings", false));
     }
 
     private ScreenshotRunner() {
