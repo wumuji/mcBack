@@ -88,6 +88,9 @@ public final class App {
                 System.getProperty("os.arch"));
         Log.info("配置目录: " + PathUtils.toDisplayPath(repository.baseDir()));
 
+        // 必须在任何 AWT 类之前:部分机器启用了辅助功能,而裁剪后的运行时可能没有对应模块
+        com.mcbackup.util.AccessibilityGuard.applyIfNeeded();
+
         AppSettings settings = repository.load();
         ThemeManager.setOption(settings.getTheme());
         ThemeManager.applyDefaults();
@@ -122,8 +125,17 @@ public final class App {
                     window.backupSmallestWorldForPreview();
                     ScreenshotRunner.run(window, options.screenshotDir(), ScreenshotRunner.defaultShots());
                 }
-            } catch (RuntimeException e) {
-                Log.error("启动界面失败", e);
+            } catch (Throwable e) {
+                // 连 Error(例如缺少模块导致的 AWTError)也要留下痕迹,绝不能静默退出
+                Log.error("启动界面失败", e instanceof Exception exception ? exception : new RuntimeException(e));
+                try {
+                    javax.swing.JOptionPane.showMessageDialog(null,
+                            "程序启动失败:" + e + "\n\n详细信息见日志:\n"
+                                    + PathUtils.toDisplayPath(repository.logsDir()),
+                            NAME, javax.swing.JOptionPane.ERROR_MESSAGE);
+                } catch (Throwable ignored) {
+                    // 连对话框都弹不出来时,日志是最后的信息来源
+                }
                 System.exit(1);
             }
         });

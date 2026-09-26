@@ -1,6 +1,7 @@
 # 构建产物
 out/
 build/
+release/
 
 # 本地工具(测试期依赖,不进入版本库)
 .tools/

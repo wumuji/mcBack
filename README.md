@@ -93,7 +93,7 @@ powershell -File scripts\build.ps1        # 编译 -> out\classes 与 out\mcback
 powershell -File scripts\run.ps1          # 启动界面
 powershell -File scripts\test.ps1         # 95 个单元测试
 powershell -File scripts\screenshot.ps1 -ExtraRoot E:\.minecraft   # GUI 截图自检 + 真实世界备份冒烟
-powershell -File scripts\package.ps1      # jlink + jpackage -> build\dist\MCBackup\MCBackup.exe
+powershell -File scripts\package.ps1      # jlink + jpackage -> release\MCBackup\MCBackup.exe(另有 zip)
 ```
 
 命令行参数(开发/便携用):
@@ -110,13 +110,36 @@ powershell -File scripts\package.ps1      # jlink + jpackage -> build\dist\MCBac
 
 | 项目 | 大小 |
 | --- | --- |
-| `build\dist\MCBackup\` 整个免安装目录 | 46.2 MB |
-| 其中裁剪后的 Java 运行时 | 45.5 MB |
+| `release\MCBackup\` 整个免安装目录 | 47.0 MB |
+| 其中裁剪后的 Java 运行时 | 46.4 MB |
 | 程序本体 `mcbackup.jar` | 0.2 MB |
+| `release\MCBackup-portable.zip` 分发包 | 32.2 MB |
 
 打包脚本会自己验证一遍:先用裁剪后的运行时启动程序确认能跑起来,再用打包好的
 `MCBackup.exe` 执行一次真实操作(导出图标)。目标机器不需要装 Java、不需要 VC++ 运行库、
 不需要 WiX。
+
+**请始终使用 `release\` 目录里的那一份**(或解压 `MCBackup-portable.zip` 到任意位置)。
+`build\dist\` 是打包脚本的中间产物,每次打包都会被删除重建;如果正好在重建过程中双击它,
+会因为目录残缺而报错。
+
+### 双击 MCBackup.exe 报 “Failed to launch JVM” 怎么办
+
+jpackage 生成的 `MCBackup.exe` 是「启动器 + 子进程」两段式结构,这句话是启动器在**无法拉起子进程**时弹出的。
+常见原因与对应处理:
+
+1. **应用目录不完整**(最常见):目录被移动/复制不全,或正好在打包重建过程中被点击。
+   → 用 `release\MCBackup-portable.zip` 完整解压后使用。
+2. **缺少辅助功能模块**:机器上启用了讲述人/放大镜时,`%USERPROFILE%\.accessibility.properties` 会写着
+   `assistive_technologies=com.sun.java.accessibility.AccessBridge`,AWT 初始化必须加载这个类,
+   否则直接抛 `AWTError` 崩溃。本项目的运行时已包含 `jdk.accessibility`,并且代码里加了兜底:
+   如果运行时确实没有这个模块,会自动为本进程关闭该加载(只影响本进程,不改系统设置)。
+3. **安全软件拦截子进程**:少数情况下 360 等会拦住启动器的第二次拉起。
+   → 用目录里的 `直接用命令行启动.cmd`(绕过启动器,直接用自带运行时启动)。
+4. 想看到真正的错误信息:双击 `出错时运行我-诊断.cmd`,它会检查目录完整性、打印运行时版本,
+   并把程序的完整输出显示在窗口里。
+
+程序日志在 `%APPDATA%\MCBackup\logs\yyyy-MM-dd.log`,出问题先看这里。
 
 ## 目录结构
 
