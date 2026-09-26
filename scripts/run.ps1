@@ -17,10 +17,10 @@ if (-not $NoBuild -or -not (Test-Path -LiteralPath $classesDir)) {
     & (Join-Path $PSScriptRoot 'build.ps1')
 }
 
-$javaArgs = @('-Dfile.encoding=UTF-8', '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8', '-cp', $classesDir, 'com.mcbackup.App')
+$javaArgs = @('-Dfile.encoding=UTF-8', '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8', '-cp', $classesDir, 'com.mcback.App')
 if ($AppArgs.Count -gt 0) { $javaArgs += $AppArgs }
 
 Write-Host "[run] launching $($jdk.Javaw)"
 Start-Process -FilePath $jdk.Javaw -ArgumentList $javaArgs -WorkingDirectory $root | Out-Null
-$logDir = Join-Path $env:APPDATA 'MCBackup\logs'
+$logDir = Join-Path $env:APPDATA 'mcBack\logs'
 Write-Host "[run] log directory: $logDir"

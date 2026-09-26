@@ -1,5 +1,5 @@
 # Release smoke test: proves the PACKAGED build really works, end to end.
-# It builds a throwaway world, then uses release\MCBackup's own runtime + jar to do
+# It builds a throwaway world, then uses release\mcBack's own runtime + jar to do
 # scan -> backup -> zip verify -> restore -> file-by-file compare -> temp cleanup.
 # Usage: powershell -File scripts\release-smoke.ps1 [-Cycles 2] [-SkipPackage]
 
@@ -10,10 +10,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$releaseApp = Join-Path $root 'release\MCBackup'
+$releaseApp = Join-Path $root 'release\mcBack'
 $runtimeJava = Join-Path $releaseApp 'runtime\bin\java.exe'
-$packagedJar = Join-Path $releaseApp 'app\mcbackup.jar'
-$packagedExe = Join-Path $releaseApp 'MCBackup.exe'
+$packagedJar = Join-Path $releaseApp 'app\mcBack.jar'
+$packagedExe = Join-Path $releaseApp 'mcBack.exe'
 
 if (-not $SkipPackage) {
     Write-Host '[smoke] building the portable package first'
@@ -27,12 +27,12 @@ foreach ($path in @($runtimeJava, $packagedJar, $packagedExe)) {
 }
 
 # 安全网:打包产物比源码旧时直接拒绝,避免用旧 jar 跑测试(旧 jar 不认识新参数会直接开界面)
-$sourceJar = Join-Path $root 'out\mcbackup.jar'
+$sourceJar = Join-Path $root 'out\mcBack.jar'
 if (Test-Path -LiteralPath $sourceJar) {
     $packagedTime = (Get-Item -LiteralPath $packagedJar).LastWriteTime
     $sourceTime = (Get-Item -LiteralPath $sourceJar).LastWriteTime
     if ($packagedTime -lt $sourceTime) {
-        throw "release\MCBackup\app\mcbackup.jar is older than out\mcbackup.jar - run scripts\package.ps1 first (or drop -SkipPackage)"
+        throw "release\mcBack\app\mcBack.jar is older than out\mcBack.jar - run scripts\package.ps1 first (or drop -SkipPackage)"
     }
 }
 
@@ -62,7 +62,7 @@ Write-Host ('[smoke] fixture world: {0} ({1} MB, {2} files)' -f $world,
     [math]::Round($before / 1MB, 1), $files.Count)
 
 $javaArgs = @('-Dfile.encoding=UTF-8', '-Dsun.stdout.encoding=UTF-8', '-Dsun.stderr.encoding=UTF-8',
-    '-cp', $packagedJar, 'com.mcbackup.App', '--self-test', $saves, '--backup-dir', $backups,
+    '-cp', $packagedJar, 'com.mcback.App', '--self-test', $saves, '--backup-dir', $backups,
     '--self-test-cycles', "$Cycles", '--console-log')
 
 Write-Host '[smoke] running self test on the packaged build'
@@ -89,11 +89,11 @@ $process = Start-Process -FilePath $packagedExe -ArgumentList @('--no-auto-scan'
 Start-Sleep -Seconds 6
 $exeAlive = -not $process.HasExited
 if (-not $exeAlive) {
-    Write-Host '[smoke] WARNING: packaged MCBackup.exe exited immediately'
+    Write-Host '[smoke] WARNING: packaged mcBack.exe exited immediately'
 } else {
-    Write-Host '[smoke] packaged MCBackup.exe started OK'
+    Write-Host '[smoke] packaged mcBack.exe started OK'
 }
-Get-Process -Name MCBackup -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name mcBack -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 $zipCount = (Get-ChildItem -LiteralPath $backups -Recurse -File -Filter '*.zip' -ErrorAction SilentlyContinue |
     Measure-Object).Count

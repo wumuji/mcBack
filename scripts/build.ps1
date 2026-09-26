@@ -1,4 +1,4 @@
-# Compiles the MCBackup main sources and packages them into out/mcbackup.jar.
+# Compiles the mcBack main sources and packages them into out/mcBack.jar.
 # Usage: powershell -File scripts\build.ps1 [-Clean]
 
 param(
@@ -13,7 +13,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $srcDir = Join-Path $root 'src\main\java'
 $outDir = Join-Path $root 'out'
 $classesDir = Join-Path $outDir 'classes'
-$jarFile = Join-Path $outDir 'mcbackup.jar'
+$jarFile = Join-Path $outDir 'mcBack.jar'
 
 if ($Clean) {
     if (Test-Path -LiteralPath $outDir) { Remove-Item -LiteralPath $outDir -Recurse -Force }
@@ -34,7 +34,7 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 & $jdk.Javac '-J-Duser.language=en' '-J-Duser.country=US' '-encoding' 'UTF-8' '-Xlint:all,-serial,-this-escape' '-d' $classesDir $sources
 if ($LASTEXITCODE -ne 0) { throw "javac failed with exit code $LASTEXITCODE" }
 
-& $jdk.Jar '--create' '--file' $jarFile '--main-class' 'com.mcbackup.App' '-C' $classesDir '.'
+& $jdk.Jar '--create' '--file' $jarFile '--main-class' 'com.mcback.App' '-C' $classesDir '.'
 if ($LASTEXITCODE -ne 0) { throw "jar failed with exit code $LASTEXITCODE" }
 
 $sw.Stop()

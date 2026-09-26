@@ -1,4 +1,4 @@
-# MC Backup — Minecraft Java 版存档自动备份与导出工具
+# mcBack — Minecraft Java 版存档自动备份与导出工具
 
 一个**独立运行**的 Minecraft Java Edition 存档管理工具:
 
@@ -47,7 +47,7 @@
 - 主题:跟随系统 / 浅色 / 深色;界面刻意保持简单:无动画、无阴影、控件尽量少。
 - 页面只有三个:**备份**(自动备份主控台)/ **备份记录** / **设置**(外观、存档目录、日志、关于);
   备份位置、间隔、保留份数、压缩方式、完整校验、最小化到托盘都收在「备份设置…」弹窗里。
-- 日志按天写入 `%APPDATA%\MCBackup\logs\yyyy-MM-dd.log`,保留 14 天。
+- 日志按天写入 `%APPDATA%\mcBack\logs\yyyy-MM-dd.log`,保留 14 天。
 - 启动时检查上次运行残留的临时文件,弹出提示(删除 / 打开目录 / 稍后处理),**绝不自动删除**。
 
 **恢复(第三阶段)**
@@ -69,7 +69,7 @@
 - 设置里可打开「最小化到托盘」:关闭窗口只是收进托盘,自动备份继续在后台运行;
   托盘菜单提供「显示主窗口 / 立即备份有变化的世界 / 退出」。托盘不可用时自动降级为普通窗口行为。
 - `scripts\package.ps1` 用 `jlink` 裁出只含所需模块的运行时,再用 `jpackage` 生成免安装的
-  `MCBackup.exe`(内置运行时,不需要安装 Java,也不需要 WiX)。
+  `mcBack.exe`(内置运行时,不需要安装 Java,也不需要 WiX)。
 
 ## 实测性能(本机 NVMe,Java 21)
 
@@ -98,11 +98,11 @@
 - 单元测试需要一次性把 `junit-platform-console-standalone` 下载到 `.tools/`(仅测试期使用,不进产物)。
 
 ```powershell
-powershell -File scripts\build.ps1        # 编译 -> out\classes 与 out\mcbackup.jar
+powershell -File scripts\build.ps1        # 编译 -> out\classes 与 out\mcBack.jar
 powershell -File scripts\run.ps1          # 启动界面
 powershell -File scripts\test.ps1         # 109 个单元测试
 powershell -File scripts\screenshot.ps1 -ExtraRoot E:\.minecraft   # GUI 截图自检 + 真实世界备份冒烟
-powershell -File scripts\package.ps1      # jlink + jpackage -> release\MCBackup\MCBackup.exe(另有 zip)
+powershell -File scripts\package.ps1      # jlink + jpackage -> release\mcBack\mcBack.exe(另有 zip)
 ```
 
 命令行参数(开发/便携用):
@@ -119,26 +119,26 @@ powershell -File scripts\package.ps1      # jlink + jpackage -> release\MCBackup
 
 | 项目 | 大小 |
 | --- | --- |
-| `release\MCBackup\` 整个免安装目录 | 47.0 MB |
+| `release\mcBack\` 整个免安装目录 | 47.0 MB |
 | 其中裁剪后的 Java 运行时 | 46.4 MB |
-| 程序本体 `mcbackup.jar` | 0.2 MB |
-| `release\MCBackup-portable.zip` 分发包 | 32.2 MB |
+| 程序本体 `mcBack.jar` | 0.2 MB |
+| `release\mcBack-portable.zip` 分发包 | 32.2 MB |
 
 打包脚本会自己验证一遍:先用裁剪后的运行时启动程序确认能跑起来,再用打包好的
-`MCBackup.exe` 执行一次真实操作(导出图标)。目标机器不需要装 Java、不需要 VC++ 运行库、
+`mcBack.exe` 执行一次真实操作(导出图标)。目标机器不需要装 Java、不需要 VC++ 运行库、
 不需要 WiX。
 
-**请始终使用 `release\` 目录里的那一份**(或解压 `MCBackup-portable.zip` 到任意位置)。
+**请始终使用 `release\` 目录里的那一份**(或解压 `mcBack-portable.zip` 到任意位置)。
 `build\dist\` 是打包脚本的中间产物,每次打包都会被删除重建;如果正好在重建过程中双击它,
 会因为目录残缺而报错。
 
-### 双击 MCBackup.exe 报 “Failed to launch JVM” 怎么办
+### 双击 mcBack.exe 报 “Failed to launch JVM” 怎么办
 
-jpackage 生成的 `MCBackup.exe` 是「启动器 + 子进程」两段式结构,这句话是启动器在**无法拉起子进程**时弹出的。
+jpackage 生成的 `mcBack.exe` 是「启动器 + 子进程」两段式结构,这句话是启动器在**无法拉起子进程**时弹出的。
 常见原因与对应处理:
 
 1. **应用目录不完整**(最常见):目录被移动/复制不全,或正好在打包重建过程中被点击。
-   → 用 `release\MCBackup-portable.zip` 完整解压后使用。
+   → 用 `release\mcBack-portable.zip` 完整解压后使用。
 2. **缺少辅助功能模块**:机器上启用了讲述人/放大镜时,`%USERPROFILE%\.accessibility.properties` 会写着
    `assistive_technologies=com.sun.java.accessibility.AccessBridge`,AWT 初始化必须加载这个类,
    否则直接抛 `AWTError` 崩溃。本项目的运行时已包含 `jdk.accessibility`,并且代码里加了兜底:
@@ -148,12 +148,12 @@ jpackage 生成的 `MCBackup.exe` 是「启动器 + 子进程」两段式结构,
 4. 想看到真正的错误信息:双击 `出错时运行我-诊断.cmd`,它会检查目录完整性、打印运行时版本,
    并把程序的完整输出显示在窗口里。
 
-程序日志在 `%APPDATA%\MCBackup\logs\yyyy-MM-dd.log`,出问题先看这里。
+程序日志在 `%APPDATA%\mcBack\logs\yyyy-MM-dd.log`,出问题先看这里。
 
 ## 目录结构
 
 ```
-src/main/java/com/mcbackup/
+src/main/java/com/mcBack/
   App.java                     入口:命令行、日志、配置、主题、启动窗口
   model/                       MinecraftWorld / BackupRecord / BackupOptions / ScanResult / AppSettings ...
   service/                     LauncherDetector(目录发现)、WorldScanner(扫描)、WorldDetector(世界识别)、
@@ -174,7 +174,7 @@ src/main/java/com/mcbackup/
 2. **运行中备份**:Minecraft 会持续改文件,复制阶段对每个文件比较复制前后的**大小与修改时间**,
    变化了就删掉重来(最多 3 次);单个文件彻底失败只记录警告并继续,任务不会整体崩掉。
    `session.lock` 属于可选文件:复制不到不影响世界本身。
-3. **不误删用户文件**:自动清理与删除只针对「有清单、清单写着 MCBackup、文件名一致」的备份。
+3. **不误删用户文件**:自动清理与删除只针对「有清单、清单写着 mcBack、文件名一致」的备份。
    用户自己放进备份目录的 ZIP 会显示为「非本程序生成」,按钮禁用,永不删除。
 4. **崩溃残留**:未完成的临时文件会在下次启动时被报告,由用户决定是否清理。
 5. **内存纪律**:不使用 `Files.readAllBytes` 处理大文件;复制与压缩都是固定 64KB 缓冲区的流式处理;
@@ -192,13 +192,13 @@ ZIP 完整性校验、失败文件不拖垮任务。也就是说:**备份失败 
 - 自动备份间隔是固定档位(5/10/15/30/60/120 分钟),暂不支持任意分钟数与 cron 表达式。
 - 界面语言为简体中文。
 - JDK 的 `Path` 会规范化掉 `\\?\` 前缀,超长路径最终取决于系统的长路径设置。
-- 免安装产物是 app-image 形式;带开始菜单/桌面快捷方式的安装包(`MCBackup-Setup.exe`)需要
+- 免安装产物是 app-image 形式;带开始菜单/桌面快捷方式的安装包(`mcBack-Setup.exe`)需要
   WiX Toolset,本机未安装,尚未提供。
 - 恢复是「整目录替换」而不是增量合并;备份格式仍是全量 ZIP。
 
 ## 后续阶段
 
-- 安装包(`MCBackup-Setup.exe`):需要安装 WiX Toolset 后再用 `jpackage --type msi/exe` 生成。
+- 安装包(`mcBack-Setup.exe`):需要安装 WiX Toolset 后再用 `jpackage --type msi/exe` 生成。
 - 增量备份:清单里已经预留了 `strategy` 字段(`FULL`),以后新增
   `IncrementalBackupStrategy` 不需要改清单格式。
 - 自动备份的更多触发方式(例如退出游戏后、空闲时)。
